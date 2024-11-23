@@ -1,0 +1,59 @@
+syntax = "proto3";
+
+package filesystem;
+
+// The file system service definition
+service FileSystem {
+    rpc Upload(stream UploadRequest) returns (UploadResponse);
+    rpc Get(GetRequest) returns (GetResponse);
+    rpc Update(UpdateRequest) returns (UpdateResponse);
+    rpc Delete(DeleteRequest) returns (DeleteResponse);
+}
+
+// Upload messages
+message UploadRequest {
+    oneof request {
+        FileInfo info = 1;
+        FileChunk chunk = 2;
+    }
+}
+
+message FileInfo {
+    string file_name = 1;
+}
+
+message FileChunk {
+    bytes data = 1;
+}
+
+message UploadResponse {
+    string message = 1;
+}
+
+// Get messages
+message GetRequest {
+    string file_name = 1;
+}
+
+message GetResponse {
+    string content = 1;
+}
+
+// Update messages
+message UpdateRequest {
+    string file_name = 1;
+    bytes new_content = 2;
+}
+
+message UpdateResponse {
+    string message = 1;
+}
+
+// Delete messages
+message DeleteRequest {
+    string file_name = 1;
+}
+
+message DeleteResponse {
+    string message = 1;
+}

@@ -1,6 +1,16 @@
 [package]
-name = "rustfs"
+name = "filesystem"
 version = "0.1.0"
 edition = "2021"
 
 [dependencies]
+tokio = { version = "1", features = ["full"] }
+tonic = "0.8"
+prost = "0.11"
+bytes = "1.1"
+tokio-stream = "0.1"  # Add this line
+
+[build-dependencies]
+tonic-build = "0.8"
+prost-build = "0.11"
+protoc-bin-vendored = "3.1"

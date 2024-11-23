@@ -11,7 +11,7 @@ pub mod filesystem {
 
 use filesystem::file_system_server::{FileSystem, FileSystemServer};
 use filesystem::{
-    DeleteRequest, DeleteResponse, GetRequest, GetResponse, UpdateRequest, UpdateResponse,
+    DeleteRequest, DeleteResponse, ReadRequest, ReadResponse, UpdateRequest, UpdateResponse,
     UploadRequest, UploadResponse,
 };
 
@@ -63,14 +63,14 @@ impl FileSystem for FileSystemService {
         }))
     }
 
-    async fn get(&self, request: Request<GetRequest>) -> Result<Response<GetResponse>, Status> {
+    async fn read(&self, request: Request<ReadRequest>) -> Result<Response<ReadResponse>, Status> {
         let file_name = request.into_inner().file_name;
         println!("Fetching file: {}", file_name);
 
         let content = fs::read_to_string(&file_name)
             .map_err(|e| Status::internal(format!("Failed to read file '{}': {}", file_name, e)))?;
 
-        Ok(Response::new(GetResponse { content }))
+        Ok(Response::new(ReadResponse { content }))
     }
 
     async fn update(

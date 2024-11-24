@@ -10,45 +10,83 @@ pub mod filesystem {
     tonic::include_proto!("filesystem");
 }
 
-use std::env;
+use std::io::{self, Write};
 use tonic::Request;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Collect command-line arguments
-    let args: Vec<String> = env::args().collect();
-
-    if args.len() < 3 {
-        eprintln!("Usage: client <operation> <file_name> [new_content]");
-        eprintln!("Operations: upload, read, update, delete");
-        return Ok(());
-    }
-
-    let operation = args[1].as_str();
-    let file_name = &args[2];
-
+    // Connect to the server once
     let mut client = FileSystemClient::connect("http://[::1]:50051").await?;
 
-    match operation {
-        "upload" => {
-            upload_file(&mut client, file_name.to_string()).await?;
+    // Interactive loop
+    loop {
+        // Display the prompt
+        print!("Client> ");
+        io::stdout().flush().unwrap();
+
+        // Read user input
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        let input = input.trim();
+
+        // Exit if the user types "exit"
+        if input.eq_ignore_ascii_case("exit") {
+            println!("Exiting client.");
+            break;
         }
-        "read" => {
-            read_file(&mut client, file_name).await?;
-        }
-        "update" => {
-            if args.len() < 4 {
-                eprintln!("Usage for update: client update <file_name> <new_content>");
-                return Ok(());
+
+        // Split the input into command and arguments
+        let mut parts = input.splitn(3, ' ');
+        let operation = parts.next();
+        let file_name = parts.next();
+        let additional_input = parts.next();
+
+        match operation {
+            Some("upload") => {
+                if let Some(file_name) = file_name {
+                    if let Err(e) = upload_file(&mut client, file_name.to_string()).await {
+                        eprintln!("Error: {}", e);
+                    }
+                } else {
+                    eprintln!("Usage: upload <file_name>");
+                }
             }
-            let new_content = args[3].clone();
-            update_file(&mut client, file_name, &new_content).await?;
-        }
-        "delete" => {
-            delete_file(&mut client, file_name).await?;
-        }
-        _ => {
-            eprintln!("Invalid operation. Use one of: upload, read, update, delete");
+            Some("read") => {
+                if let Some(file_name) = file_name {
+                    if let Err(e) = read_file(&mut client, file_name).await {
+                        eprintln!("Error: {}", e);
+                    }
+                } else {
+                    eprintln!("Usage: read <file_name>");
+                }
+            }
+            Some("update") => {
+                if let Some(file_name) = file_name {
+                    if let Some(new_content) = additional_input {
+                        if let Err(e) = update_file(&mut client, file_name, new_content).await {
+                            eprintln!("Error: {}", e);
+                        }
+                    } else {
+                        eprintln!("Usage: update <file_name> <new_content>");
+                    }
+                } else {
+                    eprintln!("Usage: update <file_name> <new_content>");
+                }
+            }
+            Some("delete") => {
+                if let Some(file_name) = file_name {
+                    if let Err(e) = delete_file(&mut client, file_name).await {
+                        eprintln!("Error: {}", e);
+                    }
+                } else {
+                    eprintln!("Usage: delete <file_name>");
+                }
+            }
+            _ => {
+                eprintln!(
+                    "Invalid command. Available commands: upload, read, update, delete, exit"
+                );
+            }
         }
     }
 

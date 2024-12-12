@@ -1,0 +1,60 @@
+syntax = "proto3";
+
+package master;
+
+// Master service definition
+service Master {
+  // Register a new ChunkServer
+  rpc RegisterChunkServer(RegisterRequest) returns (RegisterResponse);
+
+  // Assign chunks for a file
+  rpc AssignChunks(AssignRequest) returns (AssignResponse);
+
+  // Get file chunk mapping
+  rpc GetFileChunks(FileChunkMappingRequest) returns (FileChunkMapping);
+
+  // Handle Heartbeat from ChunkServer
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+}
+
+// Request and Response messages
+message RegisterRequest {
+  string address = 1; // ChunkServer address (e.g., IP:Port)
+}
+
+message RegisterResponse {
+  string message = 1; // Registration confirmation message
+}
+
+message AssignRequest {
+  string file_name = 1; // File name to upload
+}
+
+message AssignResponse {
+  string file_name = 1; // File name
+  string chunk_id = 2;  // Assigned chunk ID
+  string server_address = 3; // Assigned ChunkServer address
+}
+
+message FileChunkMappingRequest {
+  string file_name = 1; // File name to retrieve chunks for
+}
+
+message FileChunkMapping {
+  string file_name = 1; // File name
+  repeated ChunkInfo chunks = 2; // List of chunks for the file
+}
+
+message ChunkInfo {
+  string chunk_id = 1; // Chunk ID
+  repeated string server_addresses = 2; // ChunkServer address
+}
+
+message HeartbeatRequest {
+  string chunkserver_address = 1; // ChunkServer address
+  repeated string chunks = 2; // List of chunks managed by the ChunkServer
+}
+
+message HeartbeatResponse {
+  string message = 1; // Heartbeat response message
+}

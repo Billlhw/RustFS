@@ -15,8 +15,13 @@ fn main() -> Result<(), Box<dyn Error>> {
     tonic_build::configure()
         .build_server(true)
         .build_client(true)
-        // Remove .out_dir("src/")
-        .compile(&["proto/filesystem.proto"], &["proto"])?;
+        .compile(
+            &[
+                "proto/filesystem.proto", // Existing filesystem.proto
+                "proto/master.proto",     // Add the master.proto
+            ],
+            &["proto"], // Include the directory containing the proto files
+        )?;
 
     Ok(())
 }

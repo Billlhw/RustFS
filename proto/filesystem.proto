@@ -5,7 +5,6 @@ package filesystem;
 service FileSystem {
     rpc Upload(stream UploadRequest) returns (UploadResponse);
     rpc Read(ReadRequest) returns (ReadResponse);
-    rpc Update(UpdateRequest) returns (UpdateResponse);
     rpc Delete(DeleteRequest) returns (DeleteResponse);
 }
 
@@ -36,16 +35,6 @@ message ReadRequest {
 
 message ReadResponse {
     string content = 1;
-}
-
-// Update messages
-message UpdateRequest {
-    string file_name = 1;
-    bytes new_content = 2;
-}
-
-message UpdateResponse {
-    string message = 1;
 }
 
 // Delete messages

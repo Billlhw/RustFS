@@ -7,12 +7,12 @@ use tonic::{transport::Server, Request, Response, Status};
 
 pub mod filesystem {
     tonic::include_proto!("filesystem");
+    tonic::include_proto!("master");
 }
 
 use filesystem::file_system_server::{FileSystem, FileSystemServer};
 use filesystem::{
-    DeleteRequest, DeleteResponse, ReadRequest, ReadResponse, UpdateRequest, UpdateResponse,
-    UploadRequest, UploadResponse,
+    DeleteRequest, DeleteResponse, ReadRequest, ReadResponse, UploadRequest, UploadResponse,
 };
 
 #[derive(Debug, Default)]
@@ -71,29 +71,6 @@ impl FileSystem for FileSystemService {
             .map_err(|e| Status::internal(format!("Failed to read file '{}': {}", file_name, e)))?;
 
         Ok(Response::new(ReadResponse { content }))
-    }
-
-    async fn update(
-        &self,
-        request: Request<UpdateRequest>,
-    ) -> Result<Response<UpdateResponse>, Status> {
-        let req = request.into_inner();
-        let file_name = req.file_name;
-        let new_content = req.new_content;
-
-        println!("Updating file: {}", file_name);
-
-        let mut file = File::create(&file_name).map_err(|e| {
-            Status::internal(format!("Failed to update file '{}': {}", file_name, e))
-        })?;
-
-        file.write_all(&new_content).map_err(|e| {
-            Status::internal(format!("Failed to write to file '{}': {}", file_name, e))
-        })?;
-
-        Ok(Response::new(UpdateResponse {
-            message: format!("File '{}' updated successfully.", file_name),
-        }))
     }
 
     async fn delete(

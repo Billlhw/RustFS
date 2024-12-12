@@ -1,92 +1,66 @@
 // src/bin/client.rs
 
 use filesystem::file_system_client::FileSystemClient;
-use filesystem::{DeleteRequest, FileChunk, FileInfo, ReadRequest, UpdateRequest, UploadRequest};
+use filesystem::{DeleteRequest, FileChunk, FileInfo, ReadRequest, UploadRequest};
+use std::env;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tokio_stream::wrappers::ReceiverStream;
+use tonic::Request;
 
 pub mod filesystem {
     tonic::include_proto!("filesystem");
 }
 
-use std::io::{self, Write};
-use tonic::Request;
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Connect to the server once
+    // Connect to the server
     let mut client = FileSystemClient::connect("http://[::1]:50051").await?;
 
-    // Interactive loop
-    loop {
-        // Display the prompt
-        print!("Client> ");
-        io::stdout().flush().unwrap();
+    // Read command-line arguments
+    let args: Vec<String> = env::args().collect();
 
-        // Read user input
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
-        let input = input.trim();
+    if args.len() < 2 {
+        eprintln!("Usage: client <command> [arguments]");
+        eprintln!("Commands: upload <file_name>, read <file_name>, delete <file_name>");
+        return Ok(());
+    }
 
-        // Exit if the user types "exit"
-        if input.eq_ignore_ascii_case("exit") {
-            println!("Exiting client.");
-            break;
+    let operation = args[1].as_str();
+
+    match operation {
+        "upload" => {
+            if args.len() < 3 {
+                eprintln!("Usage: upload <file_name>");
+                return Ok(());
+            }
+            let file_name = args[2].clone();
+            if let Err(e) = upload_file(&mut client, file_name).await {
+                eprintln!("Error: {}", e);
+            }
         }
-
-        // Split the input into command and arguments
-        let mut parts = input.splitn(3, ' ');
-        let operation = parts.next();
-        let file_name = parts.next();
-        let additional_input = parts.next();
-
-        match operation {
-            Some("upload") => {
-                if let Some(file_name) = file_name {
-                    if let Err(e) = upload_file(&mut client, file_name.to_string()).await {
-                        eprintln!("Error: {}", e);
-                    }
-                } else {
-                    eprintln!("Usage: upload <file_name>");
-                }
+        "read" => {
+            if args.len() < 3 {
+                eprintln!("Usage: read <file_name>");
+                return Ok(());
             }
-            Some("read") => {
-                if let Some(file_name) = file_name {
-                    if let Err(e) = read_file(&mut client, file_name).await {
-                        eprintln!("Error: {}", e);
-                    }
-                } else {
-                    eprintln!("Usage: read <file_name>");
-                }
+            let file_name = args[2].as_str();
+            if let Err(e) = read_file(&mut client, file_name).await {
+                eprintln!("Error: {}", e);
             }
-            Some("update") => {
-                if let Some(file_name) = file_name {
-                    if let Some(new_content) = additional_input {
-                        if let Err(e) = update_file(&mut client, file_name, new_content).await {
-                            eprintln!("Error: {}", e);
-                        }
-                    } else {
-                        eprintln!("Usage: update <file_name> <new_content>");
-                    }
-                } else {
-                    eprintln!("Usage: update <file_name> <new_content>");
-                }
+        }
+        "delete" => {
+            if args.len() < 3 {
+                eprintln!("Usage: delete <file_name>");
+                return Ok(());
             }
-            Some("delete") => {
-                if let Some(file_name) = file_name {
-                    if let Err(e) = delete_file(&mut client, file_name).await {
-                        eprintln!("Error: {}", e);
-                    }
-                } else {
-                    eprintln!("Usage: delete <file_name>");
-                }
+            let file_name = args[2].as_str();
+            if let Err(e) = delete_file(&mut client, file_name).await {
+                eprintln!("Error: {}", e);
             }
-            _ => {
-                eprintln!(
-                    "Invalid command. Available commands: upload, read, update, delete, exit"
-                );
-            }
+        }
+        _ => {
+            eprintln!("Invalid command. Available commands: upload, read, delete");
         }
     }
 
@@ -95,7 +69,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 async fn upload_file(
     client: &mut FileSystemClient<tonic::transport::Channel>,
-    file_name: String, // Changed from &str to String
+    file_name: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let file = File::open(&file_name).await.map_err(|e| {
         eprintln!("Failed to open file '{}': {}", file_name, e);
@@ -104,14 +78,12 @@ async fn upload_file(
 
     let (tx, rx) = tokio::sync::mpsc::channel(4);
 
-    // Clone necessary variables to move into the async task
     let file_name_clone = file_name.clone();
     let mut file_clone = file.try_clone().await.map_err(|e| {
         eprintln!("Failed to clone file '{}': {}", file_name, e);
         e
     })?;
 
-    // Spawn a task to send the file data
     tokio::spawn(async move {
         let file_info = FileInfo {
             file_name: file_name_clone,
@@ -172,23 +144,6 @@ async fn read_file(
         .await?;
 
     println!("File Content:\n{}", response.into_inner().content);
-
-    Ok(())
-}
-
-async fn update_file(
-    client: &mut FileSystemClient<tonic::transport::Channel>,
-    file_name: &str,
-    new_content: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let response = client
-        .update(Request::new(UpdateRequest {
-            file_name: file_name.to_string(),
-            new_content: new_content.as_bytes().to_vec(),
-        }))
-        .await?;
-
-    println!("Update Response: {}", response.into_inner().message);
 
     Ok(())
 }

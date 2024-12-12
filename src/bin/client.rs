@@ -1,21 +1,34 @@
 // src/bin/client.rs
 
-use filesystem::file_system_client::FileSystemClient;
-use filesystem::{DeleteRequest, FileChunk, FileInfo, ReadRequest, UploadRequest};
+use crate::master::master_client::MasterClient;
+use chunk::chunk_client::ChunkClient;
+use chunk::{DeleteRequest, FileChunk, FileInfo, ReadRequest, UploadRequest};
+use rustfs::config::{load_config, MasterConfig};
 use std::env;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::Request;
+pub mod master {
+    tonic::include_proto!("master");
+}
 
-pub mod filesystem {
-    tonic::include_proto!("filesystem");
+pub mod chunk {
+    tonic::include_proto!("chunk");
 }
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // Connect to the server
-    let mut client = FileSystemClient::connect("http://[::1]:50051").await?;
+    // Load configuration
+    let config = load_config("config.toml")?;
+    let master_config: MasterConfig = config.master;
+
+    // Connect to the master
+    let mut master_client = MasterClient::connect(format!(
+        "http://{}:{}",
+        master_config.host, master_config.port
+    ))
+    .await?;
 
     // Read command-line arguments
     let args: Vec<String> = env::args().collect();
@@ -35,7 +48,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
             let file_name = args[2].clone();
-            if let Err(e) = upload_file(&mut client, file_name).await {
+            if let Err(e) = upload_file(&mut master_client, file_name).await {
                 eprintln!("Error: {}", e);
             }
         }
@@ -45,7 +58,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
             let file_name = args[2].as_str();
-            if let Err(e) = read_file(&mut client, file_name).await {
+            if let Err(e) = read_file(&mut master_client, file_name).await {
                 eprintln!("Error: {}", e);
             }
         }
@@ -55,7 +68,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
             let file_name = args[2].as_str();
-            if let Err(e) = delete_file(&mut client, file_name).await {
+            if let Err(e) = delete_file(&mut master_client, file_name).await {
                 eprintln!("Error: {}", e);
             }
         }
@@ -68,7 +81,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 
 async fn upload_file(
-    client: &mut FileSystemClient<tonic::transport::Channel>,
+    client: &mut MasterClient<tonic::transport::Channel>,
     file_name: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let file = File::open(&file_name).await.map_err(|e| {
@@ -91,7 +104,7 @@ async fn upload_file(
 
         if let Err(e) = tx
             .send(UploadRequest {
-                request: Some(filesystem::upload_request::Request::Info(file_info)),
+                request: Some(chunk::upload_request::Request::Info(file_info)),
             })
             .await
         {
@@ -116,7 +129,7 @@ async fn upload_file(
 
             if let Err(e) = tx
                 .send(UploadRequest {
-                    request: Some(filesystem::upload_request::Request::Chunk(file_chunk)),
+                    request: Some(chunk::upload_request::Request::Chunk(file_chunk)),
                 })
                 .await
             {
@@ -134,7 +147,7 @@ async fn upload_file(
 }
 
 async fn read_file(
-    client: &mut FileSystemClient<tonic::transport::Channel>,
+    client: &mut MasterClient<tonic::transport::Channel>,
     file_name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let response = client
@@ -149,7 +162,7 @@ async fn read_file(
 }
 
 async fn delete_file(
-    client: &mut FileSystemClient<tonic::transport::Channel>,
+    client: &mut MasterClient<tonic::transport::Channel>,
     file_name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
     let response = client

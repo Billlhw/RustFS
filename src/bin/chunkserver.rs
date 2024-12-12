@@ -1,27 +1,32 @@
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write; // Read crate
+use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tonic::{transport::Server, Request, Response, Status};
 
-pub mod filesystem {
-    tonic::include_proto!("filesystem");
+use crate::master::master_client::MasterClient;
+use rustfs::config::{load_config, ChunkServerConfig, MasterConfig};
+pub mod chunk {
+    tonic::include_proto!("chunk");
+}
+pub mod master {
     tonic::include_proto!("master");
 }
 
-use filesystem::file_system_server::{FileSystem, FileSystemServer};
-use filesystem::{
+use chunk::chunk_server::{Chunk, ChunkServer};
+use chunk::{
     DeleteRequest, DeleteResponse, ReadRequest, ReadResponse, UploadRequest, UploadResponse,
 };
 
 #[derive(Debug, Default)]
-pub struct FileSystemService {
+pub struct ChunkService {
     files: Arc<Mutex<HashMap<String, String>>>, // Track files and their paths
 }
 
 #[tonic::async_trait]
-impl FileSystem for FileSystemService {
+impl Chunk for ChunkService {
     async fn upload(
         &self,
         request: Request<tonic::Streaming<UploadRequest>>,
@@ -34,7 +39,7 @@ impl FileSystem for FileSystemService {
 
         while let Some(req) = stream.message().await? {
             match req.request {
-                Some(filesystem::upload_request::Request::Info(info)) => {
+                Some(chunk::upload_request::Request::Info(info)) => {
                     file_name = info.file_name.clone();
                     println!("Starting upload for file: {}", file_name);
                     file =
@@ -45,7 +50,7 @@ impl FileSystem for FileSystemService {
                     let mut files = self.files.lock().await;
                     files.insert(file_name.clone(), file_name.clone());
                 }
-                Some(filesystem::upload_request::Request::Chunk(chunk)) => {
+                Some(chunk::upload_request::Request::Chunk(chunk)) => {
                     if let Some(f) = &mut file {
                         f.write_all(&chunk.data).map_err(|e| {
                             Status::internal(format!("Failed to write to file: {}", e))
@@ -95,13 +100,34 @@ impl FileSystem for FileSystemService {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let addr = "[::1]:50051".parse()?;
-    let service = FileSystemService::default();
+    // Load configuration
+    let config = load_config("config.toml")?;
+    let chunkserver_config: ChunkServerConfig =
+        config.chunkserver.expect("ChunkServer config missing");
+    let master_config: MasterConfig = config.master;
 
+    let addr: SocketAddr =
+        format!("{}:{}", chunkserver_config.host, chunkserver_config.port).parse()?;
+    let service = ChunkService::default();
+
+    let mut master_client = MasterClient::connect(format!(
+        "http://{}:{}",
+        master_config.host, master_config.port
+    ))
+    .await?;
+
+    // Send register request
+    let response = master_client
+        .register_chunk_server(master::RegisterRequest {
+            address: addr.to_string(),
+        })
+        .await?;
+
+    println!("Registered with Master: {}", response.into_inner().message);
     println!("Filesystem server running at {}", addr);
 
     Server::builder()
-        .add_service(FileSystemServer::new(service))
+        .add_service(ChunkServer::new(service))
         .serve(addr)
         .await?;
 

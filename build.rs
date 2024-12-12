@@ -16,10 +16,7 @@ fn main() -> Result<(), Box<dyn Error>> {
         .build_server(true)
         .build_client(true)
         .compile(
-            &[
-                "proto/filesystem.proto", // Existing filesystem.proto
-                "proto/master.proto",     // Add the master.proto
-            ],
+            &["proto/chunk.proto", "proto/master.proto"],
             &["proto"], // Include the directory containing the proto files
         )?;
 

@@ -10,7 +10,7 @@ RustFS is a simple distributed file system built using Rust and gRPC. It allows 
 
 - **Upload**: Stream files from the client to the server.
 - **Get**: Retrieve the content of files stored on the server.
-- **Update**: Modify the content of existing files on the server.
+- **Append**: Append to the end of existing files on the server.
 - **Delete**: Remove files from the server.
 
 ## Setup

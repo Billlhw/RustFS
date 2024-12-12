@@ -22,7 +22,7 @@ RustFS is a simple distributed file system built using Rust and gRPC. It allows 
    # Run server
    cargo run --bin server
    # Run client
-   cargo run --bin client -- upload example.txt
+   cargo run --bin client
 
 2. Sample client command
 

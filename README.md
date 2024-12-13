@@ -15,14 +15,29 @@ RustFS is a simple distributed file system built using Rust and gRPC. It allows 
 
 ## Setup
 
-1. Build and run
+1. Compile and run master and chunkservers
 
    ```bash
-   cargo build
-   # Run server
-   cargo run --bin server
-   # Run client
-   cargo run --bin client
+   # Compile project
+   cargo build --release
+   # Run master
+   target/release/master -a localhost:50001
+   target/release/master -a localhost:50002
+   target/release/master -a localhost:50003
+   # Run chunkserver
+   target/release/chunkserver -a localhost:50010
+   target/release/chunkserver -a localhost:50011
+   ...
+   ```
 
 2. Sample client command
-   ./client upload example.txt
+   ```bash
+   # Upload file
+   target/release/client upload <file_name>
+   # Read file
+   target/release/client read <file_name>
+   # Delete file
+   target/release/client delete <file_name>
+   # Append file
+   target/release/client append <file_name> <data>
+   ```

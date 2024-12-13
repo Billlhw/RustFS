@@ -1,4 +1,4 @@
-use crate::master::master_client::MasterClient;
+use crate::master::{master_client::MasterClient, ChunkInfo};
 use chunk::chunk_client::ChunkClient;
 use chunk::{AppendRequest, DeleteRequest, FileChunk, FileInfo, ReadRequest, UploadRequest};
 use rustfs::config::{load_config, MasterConfig};
@@ -63,13 +63,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     file_size,
                 }))
                 .await?;
-            println!("Assignment response: {:?}", assign_response);
+            let inner_response = assign_response.into_inner();
+            println!("Assignment inner response: {:?}", inner_response);
 
-            let chunk_server_address =
-                get_chunk_server_address(&mut master_client, &file_name).await?;
-            println!("Client->Chunk server address: {}", chunk_server_address);
-
-            if let Err(e) = upload_file(&chunk_server_address, file_name).await {
+            if let Err(e) = upload_file(
+                inner_response.chunk_info_list,
+                inner_response.file_name.clone(),
+            )
+            .await
+            {
                 eprintln!("Error during upload: {}", e);
             }
         }
@@ -143,13 +145,14 @@ async fn get_chunk_server_address(
     )))
 }
 
+//TODO: change to separate file by chunk size, add configuration in client (change configuration to common)
 async fn upload_file(
-    chunk_server_address: &str,
+    chunk_info_list: Vec<ChunkInfo>,
     file_name: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
     println!("Attempting to open file: {}", file_name);
-    let mut chunk_client = ChunkClient::connect(format!("http://{}", chunk_server_address)).await?;
-    println!("TEST");
+    let mut chunk_client =
+        ChunkClient::connect(format!("http://{}", chunk_info_list[0].server_addresses[0])).await?;
     let file = File::open(&file_name).await.map_err(|e| {
         eprintln!("Failed to open file '{}': {}", file_name, e);
         e
@@ -220,8 +223,7 @@ async fn read_file(
         }))
         .await?;
 
-    println!("File Content:\n{}", response.into_inner().content);
-
+    println!("{}", response.into_inner().content);
     Ok(())
 }
 

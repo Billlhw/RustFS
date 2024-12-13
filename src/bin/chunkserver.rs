@@ -1,3 +1,4 @@
+use clap::{Arg, Command};
 use std::collections::HashMap;
 use std::fs::{self, File};
 use std::io::Write; // Read crate
@@ -23,7 +24,19 @@ use chunk::{
 
 #[derive(Debug, Default)]
 pub struct ChunkService {
+    addr_str: String,
     files: Arc<Mutex<HashMap<String, String>>>, // Track files and their paths
+    config: ChunkServerConfig,
+}
+
+impl ChunkService {
+    pub fn new(config: ChunkServerConfig, addr_str: &str) -> Self {
+        Self {
+            files: Arc::new(Mutex::new(HashMap::new())),
+            addr_str: addr_str.to_string(),
+            config,
+        }
+    }
 }
 
 #[tonic::async_trait]
@@ -44,7 +57,8 @@ impl Chunk for ChunkService {
                     file_name = info.file_name.clone();
                     println!("Starting upload for file: {}", file_name);
 
-                    let file_path = format!("{}/{}", "./data/chunks", file_name); //TODO: make path as an variable
+                    let file_path =
+                        format!("{}/{}/{}", self.addr_str, self.config.data_path, file_name);
                     println!("Saving file to: {}", file_path);
 
                     file = Some(File::create(&file_path).map_err(|e| {
@@ -88,7 +102,7 @@ impl Chunk for ChunkService {
     ) -> Result<Response<DeleteResponse>, Status> {
         let file_name = request.into_inner().file_name;
         println!("Deleting file: {}", file_name);
-        let file_path = format!("{}/{}", "./data/chunks", file_name); //TODO: make path as an variable
+        let file_path = format!("{}/{}/{}", self.addr_str, self.config.data_path, file_name);
         println!("Deleting file: {}", file_path);
 
         fs::remove_file(&file_path).map_err(|e| {
@@ -111,7 +125,7 @@ impl Chunk for ChunkService {
         let file_name = request.file_name;
         let data = request.data;
 
-        let file_path = format!("{}/{}", "./data/chunks", file_name); //TODO: make path as an variable
+        let file_path = format!("{}/{}/{}", self.addr_str, self.config.data_path, file_name);
         println!("Appending to file: {}", file_path);
 
         let mut file = fs::OpenOptions::new()
@@ -132,29 +146,47 @@ impl Chunk for ChunkService {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Parse command line arguments
+    let matches = Command::new("ChunkServer")
+        .version("1.0")
+        .about("Starts a ChunkServer")
+        .arg(
+            Arg::new("address")
+                .short('a')
+                .value_name("ADDR")
+                .help("Sets the address for the ChunkServer (e.g., 127.0.0.1:50010)")
+                .required(true),
+        )
+        .get_matches();
+
+    let address = matches
+        .get_one::<String>("address")
+        .expect("Address is required");
+    let addr: SocketAddr = address.parse().expect("Invalid address format");
+
     // Load configuration
     let config = load_config("config.toml")?;
     let chunkserver_config: ChunkServerConfig =
         config.chunkserver.expect("ChunkServer config missing");
-    let master_config: MasterConfig = config.master;
+    let master_config: MasterConfig = config.master; //TODO: use common config
 
-    if !std::path::Path::new(&chunkserver_config.data_path).exists() {
-        std::fs::create_dir_all(&chunkserver_config.data_path).map_err(|e| {
+    // Create path to data files
+    let sanitized_address = addr.to_string().replace(':', "_"); // Convert to a valid directory name
+    let full_data_path = format!("{}/{}", sanitized_address, chunkserver_config.data_path);
+    if !std::path::Path::new(&full_data_path).exists() {
+        std::fs::create_dir_all(&full_data_path).map_err(|e| {
             eprintln!(
                 "Failed to create data directory '{}': {}",
-                chunkserver_config.data_path, e
+                full_data_path, e
             );
             e
         })?;
     }
+    println!("Data directory verified: {}", full_data_path);
 
-    println!("Data directory verified: {}", chunkserver_config.data_path);
-
-    let addr: SocketAddr =
-        format!("{}:{}", chunkserver_config.host, chunkserver_config.port).parse()?;
-
+    // Start chunkserver service
     println!("ChunkServer running at {}", addr);
-    let service = ChunkService::default();
+    let service = ChunkService::new(chunkserver_config, &sanitized_address);
 
     let mut master_client = MasterClient::connect(format!(
         "http://{}:{}",
@@ -165,12 +197,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Send register request
     let response = master_client
         .register_chunk_server(master::RegisterRequest {
-            address: format!("{}:{}", chunkserver_config.host, chunkserver_config.port),
+            address: addr.to_string(),
         })
         .await?;
     println!("Registered with Master: {}", response.into_inner().message);
-
-    println!("Filesystem server running at {}", addr);
 
     Server::builder()
         .add_service(ChunkServer::new(service))

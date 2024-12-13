@@ -1,4 +1,3 @@
-use serde::Deserialize;
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::Arc;
@@ -12,7 +11,7 @@ pub mod master {
 }
 
 // Import the Master service and messages
-use master::master_server::{Master, MasterServer};
+use master::master_server::Master;
 use master::{
     AssignRequest, AssignResponse, ChunkInfo, FileChunkMapping, FileChunkMappingRequest,
     HeartbeatRequest, HeartbeatResponse, RegisterRequest, RegisterResponse,
@@ -35,7 +34,7 @@ impl MasterService {
             chunk_servers: Arc::new(RwLock::new(HashMap::new())),
             last_heartbeat_time: Arc::new(RwLock::new(HashMap::new())),
             chunk_map: Arc::new(RwLock::new(HashMap::new())), // Initialize the new map
-            config,                                           // Store the configuration
+            config, // Store the configuration, field init shorthand
         }
     }
 }
@@ -123,6 +122,11 @@ impl Master for MasterService {
         }))
     }
 
+    /// Handles the upload of a new file.
+    ///
+    /// - Checks if the file name already exists. If it does, appends a suffix to make it unique.
+    /// - Selects `replication_factor` chunk servers to store the file chunks.
+    /// - Updates the metadata with the new file and chunk information.
     async fn assign_chunks(
         &self,
         request: Request<AssignRequest>,
@@ -131,16 +135,33 @@ impl Master for MasterService {
         let file_name = request.file_name;
         let file_size = request.file_size;
 
-        println!(
-            "Assigning chunks for file: {} (size: {} bytes)",
-            file_name, file_size
-        );
-
         let mut metadata = self.metadata.write().await;
         let mut chunk_servers = self.chunk_servers.write().await;
 
-        if chunk_servers.is_empty() {
-            return Err(Status::internal("No available chunk servers"));
+        let mut updated_file_name = file_name.to_string();
+        let mut suffix = 1;
+        while metadata.contains_key(&updated_file_name) {
+            updated_file_name = format!("{}-{}", file_name, suffix);
+            suffix += 1;
+        }
+
+        println!(
+            "Assigning chunks for file: {} (original name: {}, size: {} bytes)",
+            updated_file_name, file_name, file_size
+        );
+
+        // Create a filtered map of available chunk servers.
+        let mut avail_chunk_servers: HashMap<String, Vec<ChunkInfo>> = HashMap::new();
+        for (server, chunks) in chunk_servers.iter() {
+            if chunks.len() < self.config.max_allowed_chunks {
+                avail_chunk_servers.insert(server.clone(), chunks.clone());
+            }
+        }
+
+        if avail_chunk_servers.is_empty() {
+            return Err(Status::internal(
+                "No available chunk servers: all servers are full",
+            ));
         }
 
         // Calculate the number of chunks of the new file (accounting partial chunks)
@@ -149,11 +170,11 @@ impl Master for MasterService {
         let mut assigned_chunks = Vec::new();
 
         for chunk_index in 0..num_chunks {
-            // Select servers that has load less than max_allowed_chunks and has minimal load
+            // Select servers that has minimal load
             let mut selected_servers = vec![];
 
             // Create a priority queue for servers based on their load (min-heap)
-            let mut server_queue: BinaryHeap<Reverse<(usize, String)>> = chunk_servers
+            let mut server_queue: BinaryHeap<Reverse<(usize, String)>> = avail_chunk_servers
                 .iter()
                 .map(|(addr, chunks)| Reverse((chunks.len(), addr.clone())))
                 .collect();
@@ -161,29 +182,34 @@ impl Master for MasterService {
             // Ensure chunkservers with minimal load is selected
             while selected_servers.len() < self.config.replication_factor {
                 if let Some(Reverse((load, addr))) = server_queue.pop() {
+                    // Check if repeated (when avail_chunk_servers.len() < replication_factor)
+                    if selected_servers.contains(&addr.to_string()) {
+                        break;
+                    }
                     // Add server to selected list
                     selected_servers.push(addr.clone());
                     // Update the load and reinsert into the priority queue
                     server_queue.push(Reverse((load + 1, addr)));
-                } else {
-                    return Err(Status::internal(
-                        "Not enough available chunk servers to satisfy replication factor",
-                    ));
                 }
             }
+            println!("selected servers: {:?}", selected_servers);
 
             // Generate a unique chunk ID
-            let chunk_id = format!("{}_chunk_{}", file_name, chunk_index + 1);
+            let chunk_id = format!("{}_chunk_{}", updated_file_name, chunk_index + 1);
             let chunk_info = ChunkInfo {
                 chunk_id: chunk_id.clone(),
                 server_addresses: selected_servers.clone(),
+                version: 0,
             };
 
             // Update metadata for this file
             metadata
                 .entry(file_name.clone())
-                .or_insert_with(Vec::new)
-                .push(chunk_info.clone());
+                .and_modify(|vec| {
+                    vec.clear();
+                    vec.push(chunk_info.clone());
+                })
+                .or_insert_with(|| vec![chunk_info.clone()]);
 
             // Update chunkserver mappings
             for server in &selected_servers {
@@ -203,6 +229,7 @@ impl Master for MasterService {
 
         // Return the response
         Ok(Response::new(AssignResponse {
+            file_name: updated_file_name,
             chunk_info_list: assigned_chunks,
         }))
     }

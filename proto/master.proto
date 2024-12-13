@@ -32,7 +32,8 @@ message AssignRequest {
 }
 
 message AssignResponse {
-  repeated ChunkInfo chunk_info_list = 2;  // Assigned chunk ID
+  string file_name = 1; // Updated file name
+  repeated ChunkInfo chunk_info_list = 2;  // Assigned chunk info
 }
 
 message FileChunkMappingRequest {
@@ -47,6 +48,7 @@ message FileChunkMapping {
 message ChunkInfo {
   string chunk_id = 1; // Chunk ID
   repeated string server_addresses = 2; // ChunkServer address
+  uint64 version = 3; // Version number
 }
 
 message HeartbeatRequest {

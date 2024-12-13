@@ -11,10 +11,8 @@ pub struct MasterConfig {
     pub metadata_path: String,
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Debug, Deserialize, Default)]
 pub struct ChunkServerConfig {
-    pub host: String,
-    pub port: u16,
     pub data_path: String,
 }
 

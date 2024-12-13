@@ -32,6 +32,7 @@ message UploadResponse {
 // Read messages
 message ReadRequest {
     string file_name = 1;
+    uint64 chunk_id = 2;
 }
 
 message ReadResponse {
@@ -41,6 +42,7 @@ message ReadResponse {
 // Delete messages
 message DeleteRequest {
     string file_name = 1;
+    uint64 chunk_id = 2;
 }
 
 message DeleteResponse {
@@ -49,7 +51,8 @@ message DeleteResponse {
 
 message AppendRequest {
   string file_name = 1; // File name to append to
-  string data = 2;      // Data to append
+  uint64 chunk_id = 2;  // Chunk id of file
+  string data = 3;      // Data to append
 }
 
 message AppendResponse {

@@ -12,6 +12,7 @@ max_allowed_chunks = 100                 # Maximum number of chunks each chunkse
 [chunkserver]
 data_path = "data"      # Path to chunk data storage
 log_path = "logs"       # Path to log storage
+chunk_size = 4096       # TODO: move to common config
 heartbeat_interval = 10         # Heartbeat interval with MasterServer (in seconds)
 
 [client]

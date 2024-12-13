@@ -13,6 +13,7 @@ pub struct MasterConfig {
 
 #[derive(Debug, Deserialize, Default)]
 pub struct ChunkServerConfig {
+    pub chunk_size: u64,
     pub data_path: String,
 }
 

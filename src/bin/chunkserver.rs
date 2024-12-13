@@ -1,9 +1,10 @@
 use clap::{Arg, Command};
 use std::collections::HashMap;
-use std::fs::{self, File};
-use std::io::Write; // Read crate
+use std::fs;
 use std::net::SocketAddr;
 use std::sync::Arc;
+use tokio::fs::File;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
 use tonic::{transport::Server, Request, Response, Status};
 
@@ -61,16 +62,15 @@ impl Chunk for ChunkService {
                         format!("{}/{}/{}", self.addr_str, self.config.data_path, file_name);
                     println!("Saving file to: {}", file_path);
 
-                    file = Some(File::create(&file_path).map_err(|e| {
+                    file = Some(tokio::fs::File::create(&file_path).await.map_err(|e| {
                         Status::internal(format!("Failed to create file at '{}': {}", file_path, e))
                     })?);
-
                     let mut files = self.files.lock().await;
                     files.insert(file_name.clone(), file_path.clone());
                 }
                 Some(chunk::upload_request::Request::Chunk(chunk)) => {
                     if let Some(f) = &mut file {
-                        f.write_all(&chunk.data).map_err(|e| {
+                        f.write_all(&chunk.data).await.map_err(|e| {
                             Status::internal(format!("Failed to write to file: {}", e))
                         })?;
                     } else {
@@ -86,13 +86,31 @@ impl Chunk for ChunkService {
         }))
     }
 
+    /// Read the file chunk
     async fn read(&self, request: Request<ReadRequest>) -> Result<Response<ReadResponse>, Status> {
-        let file_name = request.into_inner().file_name;
-        println!("Fetching file: {}", file_name);
+        let req = request.into_inner();
+        let file_name = req.file_name;
+        //let chunk_id = req.chunk_id;
+        let file_path = format!("{}/{}/{}", self.addr_str, self.config.data_path, file_name); //TODO: add chunk-id in file name
+        println!("Fetching file: {}", file_path);
 
-        let content = fs::read_to_string(&file_name)
-            .map_err(|e| Status::internal(format!("Failed to read file '{}': {}", file_name, e)))?;
+        // Read up to the chunk size from the file
+        let mut buffer = vec![0; self.config.chunk_size as usize];
+        let mut file = tokio::fs::File::open(&file_path)
+            .await
+            .map_err(|e| Status::internal(format!("Failed to open file '{}': {}", file_path, e)))?;
+        let bytes_read = file.read(&mut buffer).await.map_err(|e| {
+            Status::internal(format!("Failed to read chunk file '{}': {}", file_path, e))
+        })?;
+        buffer.truncate(bytes_read);
 
+        let content = String::from_utf8(buffer).map_err(|e| {
+            Status::internal(format!(
+                "Invalid UTF-8 content in file '{}': {}",
+                file_path, e
+            ))
+        })?;
+        println!("Content is: {}", content);
         Ok(Response::new(ReadResponse { content }))
     }
 
@@ -100,20 +118,28 @@ impl Chunk for ChunkService {
         &self,
         request: Request<DeleteRequest>,
     ) -> Result<Response<DeleteResponse>, Status> {
-        let file_name = request.into_inner().file_name;
-        println!("Deleting file: {}", file_name);
+        let req = request.into_inner();
+        let file_name = req.file_name;
+        let chunk_id = req.chunk_id;
+
+        // Include chunk_id in the file path (if chunks are stored separately by ID)
         let file_path = format!("{}/{}/{}", self.addr_str, self.config.data_path, file_name);
-        println!("Deleting file: {}", file_path);
+
+        println!("Deleting chunk file: {}", file_path);
 
         fs::remove_file(&file_path).map_err(|e| {
             Status::internal(format!("Failed to delete file '{}': {}", file_path, e))
         })?;
 
+        // TODO: Remove file from metadata
         let mut files = self.files.lock().await;
-        files.remove(&file_name);
+        files.remove(&file_name); // Adjust if you track chunks separately
 
         Ok(Response::new(DeleteResponse {
-            message: format!("File '{}' deleted successfully.", file_name),
+            message: format!(
+                "Chunk '{}' of file '{}' deleted successfully.",
+                chunk_id, file_name
+            ),
         }))
     }
 
@@ -121,25 +147,28 @@ impl Chunk for ChunkService {
         &self,
         request: Request<AppendRequest>,
     ) -> Result<Response<AppendResponse>, Status> {
-        let request = request.into_inner();
-        let file_name = request.file_name;
-        let data = request.data;
+        let req = request.into_inner();
+        let file_name = req.file_name;
+        let chunk_id = req.chunk_id;
+        let data = req.data;
 
-        let file_path = format!("{}/{}/{}", self.addr_str, self.config.data_path, file_name);
+        let file_path = format!("{}/{}/{}", self.addr_str, self.config.data_path, file_name); //TODO: add chunk id
         println!("Appending to file: {}", file_path);
 
-        let mut file = fs::OpenOptions::new()
-            .write(true)
-            .append(true)
-            .open(&file_path)
+        let mut file = File::open(&file_path)
+            .await
             .map_err(|e| Status::internal(format!("Failed to open file '{}': {}", file_path, e)))?;
 
-        file.write_all(data.as_bytes()).map_err(|e| {
+        // Write data to the file
+        file.write_all(data.as_bytes()).await.map_err(|e| {
             Status::internal(format!("Failed to write to file '{}': {}", file_path, e))
         })?;
 
         Ok(Response::new(AppendResponse {
-            message: format!("Data appended to file '{}'", file_name),
+            message: format!(
+                "Data appended to chunk {} of file '{}'",
+                chunk_id, file_name
+            ),
         }))
     }
 }

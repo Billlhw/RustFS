@@ -81,9 +81,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
             let file_name = args[2].as_str();
-            let chunk_server_address =
-                get_chunk_server_address(&mut master_client, file_name).await?;
-            if let Err(e) = read_file(&chunk_server_address, file_name).await {
+            let primary_server_addresses =
+                get_primary_server_addresses(&mut master_client, file_name).await?; //TODO: use randomized strategy for load balancing
+            if let Err(e) = read_file(primary_server_addresses, file_name).await {
                 eprintln!("Error during read: {}", e);
             }
         }
@@ -93,9 +93,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
             let file_name = args[2].as_str();
-            let chunk_server_address =
-                get_chunk_server_address(&mut master_client, file_name).await?;
-            if let Err(e) = delete_file(&chunk_server_address, file_name).await {
+            let primary_server_addresses =
+                get_primary_server_addresses(&mut master_client, file_name).await?;
+            if let Err(e) = delete_file(primary_server_addresses, file_name).await {
                 eprintln!("Error during delete: {}", e);
             }
         }
@@ -106,9 +106,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             let file_name = args[2].as_str();
             let data = args[3].to_string();
-            let chunk_server_address =
-                get_chunk_server_address(&mut master_client, file_name).await?;
-            if let Err(e) = append_file(&chunk_server_address, file_name, data).await {
+            let primary_server_addresses =
+                get_primary_server_addresses(&mut master_client, file_name).await?;
+            if let Err(e) = append_file(primary_server_addresses, file_name, data).await {
                 eprintln!("Error during append: {}", e);
             }
         }
@@ -120,29 +120,36 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-async fn get_chunk_server_address(
+///get_chunk_server_address
+async fn get_primary_server_addresses(
     master_client: &mut MasterClient<tonic::transport::Channel>,
     file_name: &str,
-) -> Result<String, Box<dyn std::error::Error>> {
-    // Query the master server for the chunk server address
+) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+    // Query the master server for the chunk server addresses
     let response = master_client
         .get_file_chunks(Request::new(master::FileChunkMappingRequest {
             file_name: file_name.to_string(),
         }))
         .await?;
 
-    // Fetch the first server address from the response
+    // Fetch the chunk info list from the response
     let chunk_info_list = response.into_inner().chunks;
-    if let Some(first_chunk) = chunk_info_list.get(0) {
-        if let Some(server_address) = first_chunk.server_addresses.get(0) {
-            return Ok(server_address.clone());
-        }
+
+    // Collect the first server address from each chunk
+    let server_addresses: Vec<String> = chunk_info_list
+        .iter()
+        .filter_map(|chunk| chunk.server_addresses.get(0).cloned())
+        .collect();
+
+    // Check if we found any server addresses
+    if server_addresses.is_empty() {
+        return Err(Box::new(std::io::Error::new(
+            std::io::ErrorKind::NotFound,
+            "No available chunk servers for the file",
+        )));
     }
 
-    Err(Box::new(std::io::Error::new(
-        std::io::ErrorKind::NotFound,
-        "No available chunk servers for the file",
-    )))
+    Ok(server_addresses)
 }
 
 //TODO: change to separate file by chunk size, add configuration in client (change configuration to common)
@@ -212,50 +219,81 @@ async fn upload_file(
     Ok(())
 }
 
+/// Read each chunk and then concatenate
 async fn read_file(
-    chunk_server_address: &str,
+    primary_server_addresses: Vec<String>,
     file_name: &str,
-) -> Result<(), Box<dyn std::error::Error>> {
-    let mut chunk_client = ChunkClient::connect(format!("http://{}", chunk_server_address)).await?;
-    let response = chunk_client
-        .read(Request::new(ReadRequest {
-            file_name: file_name.to_string(),
-        }))
-        .await?;
+) -> Result<String, Box<dyn std::error::Error>> {
+    let mut file_content = String::new();
 
-    println!("{}", response.into_inner().content);
-    Ok(())
+    for (chunk_id, server_address) in primary_server_addresses.iter().enumerate() {
+        // Connect to the chunk server
+        let mut chunk_client = ChunkClient::connect(format!("http://{}", server_address)).await?;
+
+        // Read the chunk
+        let response = chunk_client
+            .read(Request::new(ReadRequest {
+                file_name: file_name.to_string(),
+                chunk_id: chunk_id as u64, // Pass the chunk ID
+            }))
+            .await?;
+
+        // Append the chunk content to the file content
+        file_content.push_str(&response.into_inner().content);
+    }
+
+    println!("{}", file_content);
+    Ok(file_content)
 }
 
 async fn delete_file(
-    chunk_server_address: &str,
+    primary_server_addresses: Vec<String>,
     file_name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut chunk_client = ChunkClient::connect(format!("http://{}", chunk_server_address)).await?;
-    let response = chunk_client
-        .delete(Request::new(DeleteRequest {
-            file_name: file_name.to_string(),
-        }))
-        .await?;
+    for (chunk_id, server_address) in primary_server_addresses.iter().enumerate() {
+        let mut chunk_client = ChunkClient::connect(format!("http://{}", server_address)).await?;
 
-    println!("Delete Response: {}", response.into_inner().message);
+        // Send delete request for each chunk
+        let response = chunk_client
+            .delete(Request::new(DeleteRequest {
+                file_name: file_name.to_string(),
+                chunk_id: chunk_id as u64, // Include chunk_id in the request
+            }))
+            .await?;
+
+        println!(
+            "Delete Response from {}: {}",
+            server_address,
+            response.into_inner().message
+        );
+    }
 
     Ok(())
 }
+
 async fn append_file(
-    chunk_server_address: &str,
+    primary_server_addresses: Vec<String>,
     file_name: &str,
     data: String,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut chunk_client = ChunkClient::connect(format!("http://{}", chunk_server_address)).await?;
-    let response = chunk_client
-        .append(Request::new(AppendRequest {
-            file_name: file_name.to_string(),
-            data,
-        }))
-        .await?;
+    if let Some((chunk_id, server_address)) = primary_server_addresses.iter().enumerate().last() {
+        let mut chunk_client = ChunkClient::connect(format!("http://{}", server_address)).await?;
+        let response = chunk_client
+            .append(Request::new(AppendRequest {
+                file_name: file_name.to_string(),
+                chunk_id: chunk_id as u64,
+                data,
+            }))
+            .await?;
 
-    println!("Append Response: {}", response.into_inner().message);
+        println!(
+            "Append Response from server {}: {}",
+            server_address,
+            response.into_inner().message
+        );
+    } else {
+        println!("No servers available to append data.");
+    }
 
     Ok(())
 }

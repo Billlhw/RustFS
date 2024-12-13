@@ -19,7 +19,7 @@ use master::{
 
 #[derive(Debug, Default)]
 pub struct MasterService {
-    metadata: Arc<RwLock<HashMap<String, Vec<ChunkInfo>>>>, // File -> List of ChunkInfo
+    file_chunks: Arc<RwLock<HashMap<String, Vec<ChunkInfo>>>>, // File -> List of ChunkInfo
     chunk_servers: Arc<RwLock<HashMap<String, Vec<ChunkInfo>>>>, // ChunkServer -> List of chunks
     last_heartbeat_time: Arc<RwLock<HashMap<String, u64>>>, // ChunkServer -> Last heartbeat timestamp
     chunk_map: Arc<RwLock<HashMap<String, ChunkInfo>>>,     // chunkID -> ChunkInfo
@@ -30,7 +30,7 @@ pub struct MasterService {
 impl MasterService {
     pub fn new(config: MasterConfig) -> Self {
         Self {
-            metadata: Arc::new(RwLock::new(HashMap::new())),
+            file_chunks: Arc::new(RwLock::new(HashMap::new())),
             chunk_servers: Arc::new(RwLock::new(HashMap::new())),
             last_heartbeat_time: Arc::new(RwLock::new(HashMap::new())),
             chunk_map: Arc::new(RwLock::new(HashMap::new())), // Initialize the new map
@@ -46,11 +46,13 @@ impl Master for MasterService {
         request: Request<RegisterRequest>,
     ) -> Result<Response<RegisterResponse>, Status> {
         let chunkserver_address = request.into_inner().address;
-        println!("Registering chunk server: {}", chunkserver_address);
 
         let mut chunk_servers = self.chunk_servers.write().await;
-        chunk_servers.insert(chunkserver_address.clone(), vec![]); // 插入空分块列表
-        println!("Current chunk servers: {:?}", *chunk_servers);
+        chunk_servers.insert(chunkserver_address.clone(), vec![]);
+        println!(
+            "Registering chunk server: {}, Current chunk servers: {:?}",
+            chunkserver_address, *chunk_servers
+        );
 
         Ok(Response::new(RegisterResponse {
             message: format!(
@@ -126,7 +128,7 @@ impl Master for MasterService {
     ///
     /// - Checks if the file name already exists. If it does, appends a suffix to make it unique.
     /// - Selects `replication_factor` chunk servers to store the file chunks.
-    /// - Updates the metadata with the new file and chunk information.
+    /// - Updates the file_chunks with the new file and chunk information.
     async fn assign_chunks(
         &self,
         request: Request<AssignRequest>,
@@ -135,12 +137,12 @@ impl Master for MasterService {
         let file_name = request.file_name;
         let file_size = request.file_size;
 
-        let mut metadata = self.metadata.write().await;
+        let mut file_chunks = self.file_chunks.write().await;
         let mut chunk_servers = self.chunk_servers.write().await;
 
         let mut updated_file_name = file_name.to_string();
         let mut suffix = 1;
-        while metadata.contains_key(&updated_file_name) {
+        while file_chunks.contains_key(&updated_file_name) {
             updated_file_name = format!("{}-{}", file_name, suffix);
             suffix += 1;
         }
@@ -202,8 +204,8 @@ impl Master for MasterService {
                 version: 0,
             };
 
-            // Update metadata for this file
-            metadata
+            // Update file_chunks metadata for this file
+            file_chunks
                 .entry(file_name.clone())
                 .and_modify(|vec| {
                     vec.clear();
@@ -217,6 +219,7 @@ impl Master for MasterService {
                     chunks.push(chunk_info.clone());
                 }
             }
+            println!("[assign_chunks] updated chunk_servers: {:?}", chunk_servers);
 
             // Track the assigned chunk
             assigned_chunks.push(chunk_info);
@@ -241,9 +244,9 @@ impl Master for MasterService {
         let file_name = request.into_inner().file_name;
         println!("Fetching chunks for file: {}", file_name);
 
-        let metadata = self.metadata.read().await;
-        println!("Current metadata: {:?}", self.metadata.read().await);
-        let chunks = metadata
+        let file_chunks = self.file_chunks.read().await;
+        println!("[get_file_chunks] Current file_chunks: {:?}", file_chunks);
+        let chunks = file_chunks
             .get(&file_name)
             .cloned()
             .ok_or_else(|| Status::not_found(format!("File '{}' not found", file_name)))?;

@@ -25,13 +25,4 @@ RustFS is a simple distributed file system built using Rust and gRPC. It allows 
    cargo run --bin client
 
 2. Sample client command
-
-   ```bash
-    Client> upload example.txt
-    Upload Response: File 'example.txt' uploaded successfully.
-    Client> read example.txt
-    File Content:
-    Hello, World!
-
-    Client> exit
-    Exiting client.
+   ./client upload example.txt

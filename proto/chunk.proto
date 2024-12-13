@@ -6,6 +6,7 @@ service Chunk {
     rpc Upload(stream UploadRequest) returns (UploadResponse);
     rpc Read(ReadRequest) returns (ReadResponse);
     rpc Delete(DeleteRequest) returns (DeleteResponse);
+    rpc Append(AppendRequest) returns (AppendResponse);
 }
 
 // Upload messages
@@ -44,4 +45,13 @@ message DeleteRequest {
 
 message DeleteResponse {
     string message = 1;
+}
+
+message AppendRequest {
+  string file_name = 1; // File name to append to
+  string data = 2;      // Data to append
+}
+
+message AppendResponse {
+  string message = 1; // Result message
 }

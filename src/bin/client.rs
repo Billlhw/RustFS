@@ -1,6 +1,6 @@
 use crate::master::master_client::MasterClient;
 use chunk::chunk_client::ChunkClient;
-use chunk::{DeleteRequest, FileChunk, FileInfo, ReadRequest, UploadRequest};
+use chunk::{AppendRequest, DeleteRequest, FileChunk, FileInfo, ReadRequest, UploadRequest};
 use rustfs::config::{load_config, MasterConfig};
 use std::env;
 use tokio::fs::File;
@@ -97,8 +97,21 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 eprintln!("Error during delete: {}", e);
             }
         }
+        "append" => {
+            if args.len() < 4 {
+                eprintln!("Usage: append <file_name> <data>");
+                return Ok(());
+            }
+            let file_name = args[2].as_str();
+            let data = args[3].to_string();
+            let chunk_server_address =
+                get_chunk_server_address(&mut master_client, file_name).await?;
+            if let Err(e) = append_file(&chunk_server_address, file_name, data).await {
+                eprintln!("Error during append: {}", e);
+            }
+        }
         _ => {
-            eprintln!("Invalid command. Available commands: upload, read, delete");
+            eprintln!("Invalid command. Available commands: upload, read, delete, append");
         }
     }
 
@@ -224,6 +237,23 @@ async fn delete_file(
         .await?;
 
     println!("Delete Response: {}", response.into_inner().message);
+
+    Ok(())
+}
+async fn append_file(
+    chunk_server_address: &str,
+    file_name: &str,
+    data: String,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let mut chunk_client = ChunkClient::connect(format!("http://{}", chunk_server_address)).await?;
+    let response = chunk_client
+        .append(Request::new(AppendRequest {
+            file_name: file_name.to_string(),
+            data,
+        }))
+        .await?;
+
+    println!("Append Response: {}", response.into_inner().message);
 
     Ok(())
 }

@@ -17,7 +17,8 @@ pub mod master {
 
 use chunk::chunk_server::{Chunk, ChunkServer};
 use chunk::{
-    DeleteRequest, DeleteResponse, ReadRequest, ReadResponse, UploadRequest, UploadResponse,
+    AppendRequest, AppendResponse, DeleteRequest, DeleteResponse, ReadRequest, ReadResponse,
+    UploadRequest, UploadResponse,
 };
 
 #[derive(Debug, Default)]
@@ -99,6 +100,32 @@ impl Chunk for ChunkService {
 
         Ok(Response::new(DeleteResponse {
             message: format!("File '{}' deleted successfully.", file_name),
+        }))
+    }
+
+    async fn append(
+        &self,
+        request: Request<AppendRequest>,
+    ) -> Result<Response<AppendResponse>, Status> {
+        let request = request.into_inner();
+        let file_name = request.file_name;
+        let data = request.data;
+
+        let file_path = format!("{}/{}", "./data/chunks", file_name); //TODO: make path as an variable
+        println!("Appending to file: {}", file_path);
+
+        let mut file = fs::OpenOptions::new()
+            .write(true)
+            .append(true)
+            .open(&file_path)
+            .map_err(|e| Status::internal(format!("Failed to open file '{}': {}", file_path, e)))?;
+
+        file.write_all(data.as_bytes()).map_err(|e| {
+            Status::internal(format!("Failed to write to file '{}': {}", file_path, e))
+        })?;
+
+        Ok(Response::new(AppendResponse {
+            message: format!("Data appended to file '{}'", file_name),
         }))
     }
 }

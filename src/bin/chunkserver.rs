@@ -43,7 +43,7 @@ impl Chunk for ChunkService {
                     file_name = info.file_name.clone();
                     println!("Starting upload for file: {}", file_name);
 
-                    let file_path = format!("{}/{}", "./data/chunks", file_name); // 确保路径正确
+                    let file_path = format!("{}/{}", "./data/chunks", file_name); //TODO: make path as an variable
                     println!("Saving file to: {}", file_path);
 
                     file = Some(File::create(&file_path).map_err(|e| {
@@ -87,9 +87,11 @@ impl Chunk for ChunkService {
     ) -> Result<Response<DeleteResponse>, Status> {
         let file_name = request.into_inner().file_name;
         println!("Deleting file: {}", file_name);
+        let file_path = format!("{}/{}", "./data/chunks", file_name); //TODO: make path as an variable
+        println!("Deleting file: {}", file_path);
 
-        fs::remove_file(&file_name).map_err(|e| {
-            Status::internal(format!("Failed to delete file '{}': {}", file_name, e))
+        fs::remove_file(&file_path).map_err(|e| {
+            Status::internal(format!("Failed to delete file '{}': {}", file_path, e))
         })?;
 
         let mut files = self.files.lock().await;

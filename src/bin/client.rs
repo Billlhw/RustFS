@@ -200,7 +200,7 @@ async fn read_file(
     chunk_server_address: &str,
     file_name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut chunk_client = ChunkClient::connect(chunk_server_address.to_string()).await?;
+    let mut chunk_client = ChunkClient::connect(format!("http://{}", chunk_server_address)).await?;
     let response = chunk_client
         .read(Request::new(ReadRequest {
             file_name: file_name.to_string(),
@@ -216,7 +216,7 @@ async fn delete_file(
     chunk_server_address: &str,
     file_name: &str,
 ) -> Result<(), Box<dyn std::error::Error>> {
-    let mut chunk_client = ChunkClient::connect(chunk_server_address.to_string()).await?;
+    let mut chunk_client = ChunkClient::connect(format!("http://{}", chunk_server_address)).await?;
     let response = chunk_client
         .delete(Request::new(DeleteRequest {
             file_name: file_name.to_string(),

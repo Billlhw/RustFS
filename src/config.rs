@@ -8,12 +8,14 @@ pub struct MasterConfig {
     pub replication_factor: usize,
     pub max_allowed_chunks: usize,
     pub chunk_size: u64,
+    pub metadata_path: String,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ChunkServerConfig {
     pub host: String,
     pub port: u16,
+    pub data_path: String,
 }
 
 #[derive(Debug, Deserialize)]

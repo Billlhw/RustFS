@@ -1,31 +1,31 @@
 # config.toml
 [master]
-host = "127.0.0.1"          # MasterServer IP address
-port = 50050                 # MasterServer Port
-replication_factor = 3      # Number of block replicas
-metadata_path = "/data/master/metadata"  # metadata storage
-log_path = "/data/master/logs"           # log storage
-heartbeat_interval = 10     # Heartbeat interval from ChunkServer (in seconds)
-chunk_size = 50             # Chunk size, default 50 (in bytes, for testing)
-max_allowed_chunks = 100    # Maximum number of chunks each chunkserver can store
+host = "127.0.0.1"                       # MasterServer IP address
+port = 50050                             # MasterServer Port
+replication_factor = 3                   # Number of block replicas
+metadata_path = "./data/master/metadata" # metadata storage
+log_path = "./data/master/logs"          # log storage
+heartbeat_interval = 10                  # Heartbeat interval from ChunkServer (in seconds)
+chunk_size = 50                          # Chunk size, default 50 (in bytes, for testing)
+max_allowed_chunks = 100                 # Maximum number of chunks each chunkserver can store
 
 [chunkserver]
-data_path = "/data/chunks"   # Path to chunk data storage
-log_path = "/data/chunkserver/logs"  # Path to log storage
-host = "127.0.0.1"           # ChunkServer IP address
-port = 6000                  # ChunkServer port
-master_host = "127.0.0.1"    # MasterServer IP address
-master_port = 50050           # MasterServer port
-heartbeat_interval = 10      # Heartbeat interval with MasterServer (in seconds)
+data_path = "./data/chunks"     # Path to chunk data storage
+log_path = "./data/chunks/logs" # Path to log storage
+host = "127.0.0.1"              # ChunkServer IP address
+port = 6000                     # ChunkServer port
+master_host = "127.0.0.1"       # MasterServer IP address
+master_port = 50050             # MasterServer port
+heartbeat_interval = 10         # Heartbeat interval with MasterServer (in seconds)
 
 [client]
-master_host = "127.0.0.1"    # MasterServer IP address
-master_port = 50050           # MasterServer port
-cache_size = 104857600       # Client cache size, default 100MB (in bytes)
-timeout = 10                 # Request timeout (in seconds)
-log_path = "/data/client/logs"  # Path to client log storage
+master_host = "127.0.0.1"       # MasterServer IP address
+master_port = 50050             # MasterServer port
+cache_size = 104857600          # Client cache size, default 100MB (in bytes)
+timeout = 10                    # Request timeout (in seconds)
+log_path = "./data/client/logs" # Path to client log storage
 
 # Common logging config
 [logging]
-level = "info"               # Logging level, options are "debug", "info", "warn", "error"
-output = "stdout"            # Logging output, options are "stdout", "file"
+level = "info"    # Logging level, options are "debug", "info", "warn", "error"
+output = "stdout" # Logging output, options are "stdout", "file"

@@ -15,10 +15,11 @@ fn main() -> Result<(), Box<dyn Error>> {
     tonic_build::configure()
         .build_server(true)
         .build_client(true)
-        .compile(
-            &["proto/chunk.proto", "proto/master.proto"],
-            &["proto"], // Include the directory containing the proto files
-        )?;
+        .type_attribute(
+            "ChunkInfo",
+            "#[derive(serde::Serialize, serde::Deserialize)]",
+        )
+        .compile(&["proto/master.proto", "proto/chunk.proto"], &["proto"])?;
 
     Ok(())
 }

@@ -46,11 +46,18 @@ impl Master for MasterService {
         &self,
         request: Request<RegisterRequest>,
     ) -> Result<Response<RegisterResponse>, Status> {
-        let server_address = request.into_inner().address;
-        println!("Registering chunk server: {}", server_address);
+        let chunkserver_address = request.into_inner().address;
+        println!("Registering chunk server: {}", chunkserver_address);
+
+        let mut chunk_servers = self.chunk_servers.write().await;
+        chunk_servers.insert(chunkserver_address.clone(), vec![]); // 插入空分块列表
+        println!("Current chunk servers: {:?}", *chunk_servers);
 
         Ok(Response::new(RegisterResponse {
-            message: format!("Chunk server '{}' registered successfully.", server_address),
+            message: format!(
+                "Chunk server '{}' registered successfully.",
+                chunkserver_address
+            ),
         }))
     }
 
@@ -208,7 +215,7 @@ impl Master for MasterService {
         println!("Fetching chunks for file: {}", file_name);
 
         let metadata = self.metadata.read().await;
-
+        println!("Current metadata: {:?}", self.metadata.read().await);
         let chunks = metadata
             .get(&file_name)
             .cloned()

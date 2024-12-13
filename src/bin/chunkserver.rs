@@ -42,13 +42,16 @@ impl Chunk for ChunkService {
                 Some(chunk::upload_request::Request::Info(info)) => {
                     file_name = info.file_name.clone();
                     println!("Starting upload for file: {}", file_name);
-                    file =
-                        Some(File::create(&file_name).map_err(|e| {
-                            Status::internal(format!("Failed to create file: {}", e))
-                        })?);
+
+                    let file_path = format!("{}/{}", "./data/chunks", file_name); // 确保路径正确
+                    println!("Saving file to: {}", file_path);
+
+                    file = Some(File::create(&file_path).map_err(|e| {
+                        Status::internal(format!("Failed to create file at '{}': {}", file_path, e))
+                    })?);
 
                     let mut files = self.files.lock().await;
-                    files.insert(file_name.clone(), file_name.clone());
+                    files.insert(file_name.clone(), file_path.clone());
                 }
                 Some(chunk::upload_request::Request::Chunk(chunk)) => {
                     if let Some(f) = &mut file {
@@ -62,7 +65,7 @@ impl Chunk for ChunkService {
                 None => return Err(Status::invalid_argument("Empty request")),
             }
         }
-
+        // println!("File '{}' uploaded successfully.", file_name);
         Ok(Response::new(UploadResponse {
             message: format!("File '{}' uploaded successfully.", file_name),
         }))
@@ -106,8 +109,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         config.chunkserver.expect("ChunkServer config missing");
     let master_config: MasterConfig = config.master;
 
+    if !std::path::Path::new(&chunkserver_config.data_path).exists() {
+        std::fs::create_dir_all(&chunkserver_config.data_path).map_err(|e| {
+            eprintln!(
+                "Failed to create data directory '{}': {}",
+                chunkserver_config.data_path, e
+            );
+            e
+        })?;
+    }
+
+    println!("Data directory verified: {}", chunkserver_config.data_path);
+
     let addr: SocketAddr =
         format!("{}:{}", chunkserver_config.host, chunkserver_config.port).parse()?;
+
+    println!("ChunkServer running at {}", addr);
     let service = ChunkService::default();
 
     let mut master_client = MasterClient::connect(format!(
@@ -119,11 +136,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Send register request
     let response = master_client
         .register_chunk_server(master::RegisterRequest {
-            address: addr.to_string(),
+            address: format!("{}:{}", chunkserver_config.host, chunkserver_config.port),
         })
         .await?;
-
     println!("Registered with Master: {}", response.into_inner().message);
+
     println!("Filesystem server running at {}", addr);
 
     Server::builder()

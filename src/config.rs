@@ -8,8 +8,8 @@ pub struct MasterConfig {
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct ChunkServerConfig {
-    pub chunk_size: u64,
     pub data_path: String,
+    pub log_path: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]

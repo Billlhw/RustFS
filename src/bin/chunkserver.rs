@@ -1,5 +1,5 @@
 use clap::{Arg, Command};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::net::SocketAddr;
 use std::sync::Arc;
@@ -26,7 +26,7 @@ use chunk::{
 pub struct ChunkService {
     addr: String,                               // Chunkserver address
     addr_sanitized: String,                     // Sanitized address, used for file directories
-    files: Arc<Mutex<HashMap<String, String>>>, // Track files and their paths
+    server_chunks: Arc<Mutex<HashSet<String>>>, // Track metadata of all chunks stored
     config: ChunkServerConfig,
     common_config: CommonConfig,
 }
@@ -39,7 +39,7 @@ impl ChunkService {
         common_config: CommonConfig,
     ) -> Self {
         Self {
-            files: Arc::new(Mutex::new(HashMap::new())),
+            server_chunks: Arc::new(Mutex::new(HashSet::new())),
             addr: addr.to_string(),
             addr_sanitized: addr_sanitized.to_string(),
             config,
@@ -53,7 +53,7 @@ impl ChunkService {
     ) -> Result<(), Box<dyn std::error::Error>> {
         let interval = Duration::from_secs(self.common_config.heartbeat_interval);
         let addr = self.addr.clone();
-        let files = self.files.clone();
+        let server_chunks = self.server_chunks.clone(); //create a new pointer to the hashset
 
         tokio::spawn(async move {
             let mut interval = tokio::time::interval(interval);
@@ -64,7 +64,12 @@ impl ChunkService {
                 interval.tick().await;
 
                 // Collect chunk information
-                let chunks: Vec<String> = files.lock().await.keys().cloned().collect();
+                let chunks: Vec<String> = server_chunks
+                    .lock()
+                    .await
+                    .iter()
+                    .cloned() // Clone each String from the HashSet
+                    .collect();
 
                 // Create and send the heartbeat request
                 let request = HeartbeatRequest {
@@ -117,8 +122,11 @@ impl Chunk for ChunkService {
                     file = Some(tokio::fs::File::create(&file_path).await.map_err(|e| {
                         Status::internal(format!("Failed to create file at '{}': {}", file_path, e))
                     })?);
-                    let mut files = self.files.lock().await;
-                    files.insert(file_name.clone(), file_path.clone());
+
+                    // update metadata of chunkserver
+                    let chunk_name = format!("{}_chunk_{}", file_name, chunk_id);
+                    let mut server_chunks_guard = self.server_chunks.lock().await;
+                    server_chunks_guard.insert(chunk_name);
                 }
                 Some(chunk::upload_request::Request::Chunk(chunk)) => {
                     if let Some(f) = &mut file {
@@ -150,7 +158,7 @@ impl Chunk for ChunkService {
         println!("Fetching file: {}", file_path);
 
         // Read up to the chunk size from the file
-        let mut buffer = vec![0; self.config.chunk_size as usize];
+        let mut buffer = vec![0; self.common_config.chunk_size as usize];
         let mut file = tokio::fs::File::open(&file_path)
             .await
             .map_err(|e| Status::internal(format!("Failed to open file '{}': {}", file_path, e)))?;
@@ -188,9 +196,14 @@ impl Chunk for ChunkService {
             Status::internal(format!("Failed to delete file '{}': {}", file_path, e))
         })?;
 
-        // TODO: Remove file from metadata
-        let mut files = self.files.lock().await;
-        files.remove(&file_name); // Adjust if you track chunks separately
+        // Remove file chunk from metadata
+        let chunk_to_remove = format!("{}_chunk_{}", file_name, chunk_id);
+        let mut server_chunks_guard = self.server_chunks.lock().await;
+        if server_chunks_guard.remove(&chunk_to_remove) {
+            println!("Removed chunk: {}", chunk_to_remove);
+        } else {
+            println!("chunk not found: {}", chunk_to_remove);
+        }
 
         Ok(Response::new(DeleteResponse {
             message: format!(

@@ -122,8 +122,8 @@ impl Master for MasterService {
 
         Ok(Response::new(HeartbeatResponse {
             message: format!(
-                "Heartbeat from '{}' processed successfully at {}.",
-                chunkserver_address, now
+                "Heartbeat from '{}' processed successfully.",
+                chunkserver_address,
             ),
         }))
     }
@@ -133,6 +133,7 @@ impl Master for MasterService {
     /// - Checks if the file name already exists. If it does, appends a suffix to make it unique.
     /// - Selects `replication_factor` chunk servers to store the file chunks.
     /// - Updates the file_chunks with the new file and chunk information.
+    /// - Adds the new chunks to the chunk_map (mapping from chunk_id to ChunkInfo).
     async fn assign_chunks(
         &self,
         request: Request<AssignRequest>,
@@ -143,6 +144,7 @@ impl Master for MasterService {
 
         let mut file_chunks = self.file_chunks.write().await;
         let mut chunk_servers = self.chunk_servers.write().await;
+        let mut chunk_map = self.chunk_map.write().await;
 
         let mut updated_file_name = file_name.to_string();
         let mut suffix = 1;
@@ -202,7 +204,7 @@ impl Master for MasterService {
             println!("selected servers: {:?}", selected_servers);
 
             // Generate a unique chunk ID
-            let chunk_id = format!("{}_chunk_{}", updated_file_name, chunk_index + 1);
+            let chunk_id = format!("{}_chunk_{}", updated_file_name, chunk_index);
             let chunk_info = ChunkInfo {
                 chunk_id: chunk_id.clone(),
                 server_addresses: selected_servers.clone(),
@@ -224,6 +226,7 @@ impl Master for MasterService {
                     chunks.push(chunk_info.clone());
                 }
             }
+            chunk_map.insert(chunk_id.clone(), chunk_info.clone());
             println!("[assign_chunks] updated chunk_servers: {:?}", chunk_servers);
 
             // Track the assigned chunk
@@ -231,7 +234,7 @@ impl Master for MasterService {
         }
 
         println!(
-            "File '{}' has been divided into {} chunks and assigned to servers.",
+            "File '{}' has been divided into {} chunk(s) and assigned to servers.",
             file_name, num_chunks
         );
 

@@ -71,65 +71,87 @@ impl Client {
         file_name: String,
     ) -> Result<(), Box<dyn std::error::Error>> {
         println!("Attempting to open file: {}", file_name);
-        let mut chunk_client =
-            ChunkClient::connect(format!("http://{}", chunk_info_list[0].server_addresses[0]))
-                .await?;
-        let file = File::open(&file_name).await.map_err(|e| {
+        let mut file = File::open(&file_name).await.map_err(|e| {
             eprintln!("Failed to open file '{}': {}", file_name, e);
             e
         })?;
 
-        let (tx, rx) = tokio::sync::mpsc::channel(4);
-
-        tokio::spawn(async move {
-            let file_info = FileInfo {
-                file_name: file_name.clone(),
-                chunk_id: 0, //TODO: use real chunk id
-            };
-
-            if let Err(e) = tx
-                .send(UploadRequest {
-                    request: Some(chunk::upload_request::Request::Info(file_info)),
-                })
-                .await
-            {
-                eprintln!("Failed to send file info: {}", e);
-                return;
+        // Separate the file into chunks
+        let chunk_size = self.common_config.chunk_size as usize;
+        let mut chunks = Vec::new();
+        let mut buf = vec![0; chunk_size];
+        loop {
+            let n = file.read(&mut buf).await?;
+            if n == 0 {
+                break; // EOF
             }
+            chunks.push(buf[..n].to_vec());
+        }
 
-            let mut buf = [0; 1024];
-            let mut file = file;
-            loop {
-                let n = match file.read(&mut buf).await {
-                    Ok(n) if n == 0 => break,
-                    Ok(n) => n,
-                    Err(e) => {
-                        eprintln!("Failed to read file: {}", e);
-                        break;
+        // Check the length of chunk is the same as chunk_info_list (from AssignResponse)
+        if chunks.len() != chunk_info_list.len() {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "Mismatch between number of file chunks and chunk_info_list length",
+            )));
+        }
+
+        // Iterate through each chunk and upload to all chunkservers // TODO: upload to the primary chunkserver only
+        for (chunk_index, chunk) in chunks.into_iter().enumerate() {
+            let chunk_info = &chunk_info_list[chunk_index];
+            for server_address in &chunk_info.server_addresses {
+                let mut chunk_client =
+                    ChunkClient::connect(format!("http://{}", server_address)).await?;
+
+                let (tx, rx) = tokio::sync::mpsc::channel(4);
+
+                let file_name_clone = file_name.clone();
+                let chunk_id = chunk_info.chunk_id.clone();
+                let chunk_data = chunk.clone();
+
+                tokio::spawn(async move {
+                    let file_info = FileInfo {
+                        file_name: file_name_clone,
+                        chunk_id: chunk_id.parse::<u64>().unwrap_or(0), // 使用 chunk_id
+                    };
+
+                    if let Err(e) = tx
+                        .send(UploadRequest {
+                            request: Some(chunk::upload_request::Request::Info(file_info)),
+                        })
+                        .await
+                    {
+                        eprintln!("Failed to send file info: {}", e);
+                        return;
                     }
-                };
 
-                let file_chunk = FileChunk {
-                    data: buf[..n].to_vec(),
-                };
+                    let file_chunk = FileChunk { data: chunk_data };
 
-                if let Err(e) = tx
-                    .send(UploadRequest {
-                        request: Some(chunk::upload_request::Request::Chunk(file_chunk)),
-                    })
-                    .await
-                {
-                    eprintln!("Failed to send file chunk: {}", e);
-                    break;
-                }
+                    if let Err(e) = tx
+                        .send(UploadRequest {
+                            request: Some(chunk::upload_request::Request::Chunk(file_chunk)),
+                        })
+                        .await
+                    {
+                        eprintln!("Failed to send file chunk: {}", e);
+                        return;
+                    }
+                });
+
+                let response = chunk_client
+                    .upload(Request::new(ReceiverStream::new(rx)))
+                    .await?;
+
+                println!(
+                    "Upload Response from server {} for chunk {}: {}",
+                    server_address,
+                    chunk_index,
+                    response.into_inner().message
+                );
             }
-        });
+        }
 
-        let response = chunk_client
-            .upload(Request::new(ReceiverStream::new(rx)))
-            .await?;
-
-        println!("Upload Response: {}", response.into_inner().message);
+        println!("File upload completed successfully.");
         Ok(())
     }
 

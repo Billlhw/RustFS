@@ -1,1 +1,3 @@
-pub mod config; // Declare the config module
+pub mod config;
+pub mod proto;
+pub mod util;

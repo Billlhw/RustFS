@@ -1,14 +1,14 @@
+use clap::{Arg, Command};
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
+use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
 use tonic::{transport::Server, Request, Response, Status};
 
-use rustfs::config::{load_config, MasterConfig};
-pub mod master {
-    tonic::include_proto!("master");
-}
+use rustfs::config::{load_config, CommonConfig, MasterConfig};
+use rustfs::proto::master;
 
 // Import the Master service and messages
 use master::master_server::Master;
@@ -23,18 +23,22 @@ pub struct MasterService {
     chunk_servers: Arc<RwLock<HashMap<String, Vec<ChunkInfo>>>>, // ChunkServer -> List of chunks
     last_heartbeat_time: Arc<RwLock<HashMap<String, u64>>>, // ChunkServer -> Last heartbeat timestamp
     chunk_map: Arc<RwLock<HashMap<String, ChunkInfo>>>,     // chunkID -> ChunkInfo
-    config: MasterConfig,                                   // Configuration settings
+    config: MasterConfig,
+    common_config: CommonConfig,
+    addr: String, // TODO: use it in heartbeat to the master node
 }
 
 // Implement a constructor for MasterService
 impl MasterService {
-    pub fn new(config: MasterConfig) -> Self {
+    pub fn new(addr: &str, config: MasterConfig, common_config: CommonConfig) -> Self {
         Self {
             file_chunks: Arc::new(RwLock::new(HashMap::new())),
             chunk_servers: Arc::new(RwLock::new(HashMap::new())),
             last_heartbeat_time: Arc::new(RwLock::new(HashMap::new())),
             chunk_map: Arc::new(RwLock::new(HashMap::new())), // Initialize the new map
+            addr: addr.to_string(),
             config, // Store the configuration, field init shorthand
+            common_config,
         }
     }
 }
@@ -155,7 +159,7 @@ impl Master for MasterService {
         // Create a filtered map of available chunk servers.
         let mut avail_chunk_servers: HashMap<String, Vec<ChunkInfo>> = HashMap::new();
         for (server, chunks) in chunk_servers.iter() {
-            if chunks.len() < self.config.max_allowed_chunks {
+            if chunks.len() < self.common_config.max_allowed_chunks {
                 avail_chunk_servers.insert(server.clone(), chunks.clone());
             }
         }
@@ -167,7 +171,8 @@ impl Master for MasterService {
         }
 
         // Calculate the number of chunks of the new file (accounting partial chunks)
-        let num_chunks = (file_size + self.config.chunk_size - 1) / self.config.chunk_size;
+        let num_chunks =
+            (file_size + self.common_config.chunk_size - 1) / self.common_config.chunk_size;
 
         let mut assigned_chunks = Vec::new();
 
@@ -182,7 +187,7 @@ impl Master for MasterService {
                 .collect();
 
             // Ensure chunkservers with minimal load is selected
-            while selected_servers.len() < self.config.replication_factor {
+            while selected_servers.len() < self.common_config.replication_factor {
                 if let Some(Reverse((load, addr))) = server_queue.pop() {
                     // Check if repeated (when avail_chunk_servers.len() < replication_factor)
                     if selected_servers.contains(&addr.to_string()) {
@@ -257,19 +262,36 @@ impl Master for MasterService {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // Parse command line arguments
+    let matches = Command::new("ChunkServer")
+        .version("1.0")
+        .about("Starts a ChunkServer")
+        .arg(
+            Arg::new("address")
+                .short('a')
+                .value_name("ADDR")
+                .help("Sets the address for the ChunkServer (e.g., 127.0.0.1:50010)")
+                .required(true),
+        )
+        .get_matches();
+
+    let addr = matches
+        .get_one::<String>("address")
+        .expect("Address is required");
+
     // Load configuration
     let config = load_config("config.toml")?;
     let master_config: MasterConfig = config.master;
+    let common_config: CommonConfig = config.common;
 
     // Create the server address
-    let addr = format!("{}:{}", master_config.host, master_config.port).parse()?;
     println!("MasterServer running at {}", addr);
-
-    let master_service = MasterService::new(master_config);
+    let master_service = MasterService::new(addr, master_config, common_config);
+    let addr_socket: SocketAddr = addr.parse()?;
 
     Server::builder()
         .add_service(master::master_server::MasterServer::new(master_service))
-        .serve(addr)
+        .serve(addr_socket)
         .await?;
 
     Ok(())

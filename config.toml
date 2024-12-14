@@ -1,24 +1,19 @@
 # config.toml
 [master]
-host = "127.0.0.1"                       # MasterServer IP address #TODO: move to the comman block
-port = 50050                             # MasterServer Port
-replication_factor = 3                   # Number of block replicas #TODO: move to the comman block
-metadata_path = "./data/master/metadata" # metadata storage
-log_path = "./data/master/logs"          # log storage
-heartbeat_interval = 10                  # Heartbeat interval from ChunkServer (in seconds) #TODO: move to the comman block
-chunk_size = 4096                        # Chunk size (in bytes) #TODO: move to the comman block
-max_allowed_chunks = 100                 # Maximum number of chunks each chunkserver can store
+log_path = "logs"          # log storage
 
 [chunkserver]
 data_path = "data"      # Path to chunk data storage
 log_path = "logs"       # Path to log storage
-chunk_size = 4096       # TODO: move to common config
-heartbeat_interval = 10         # Heartbeat interval with MasterServer (in seconds)
 
 [client]
 log_path = "client/logs" # Path to client log storage
 
-# Common logging config
-[logging]
-level = "info"    # Logging level, options are "debug", "info", "warn", "error"
-output = "stdout" # Logging output, options are "stdout", "file"
+[common]
+master_addrs = ["127.0.0.1:50001", "127.0.0.1:50002", "127.0.0.1:50003"] # Using 2 shadow masters by default
+heartbeat_interval = 20                  # Heartbeat interval from ChunkServer (in seconds)
+chunk_size = 4096                        # Chunk size (in bytes)
+max_allowed_chunks = 100                 # Maximum number of chunks each chunkserver can store
+replication_factor = 3                   # Number of chunk replicas
+log_level = "info"                       # Options are "debug", "info", "warn", "error"
+log_output = "stdout"                    # Options are "stdout", "file"

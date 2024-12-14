@@ -6,15 +6,14 @@ use std::sync::Arc;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::Mutex;
+use tokio::time::Duration;
 use tonic::{transport::Server, Request, Response, Status};
 
-use crate::master::master_client::MasterClient;
-use rustfs::config::{load_config, ChunkServerConfig, MasterConfig};
+use rustfs::config::{load_config, ChunkServerConfig, CommonConfig};
+use rustfs::proto::master::{master_client::MasterClient, HeartbeatRequest, RegisterRequest};
+use rustfs::util::connect_to_master;
 pub mod chunk {
     tonic::include_proto!("chunk");
-}
-pub mod master {
-    tonic::include_proto!("master");
 }
 
 use chunk::chunk_server::{Chunk, ChunkServer};
@@ -23,20 +22,71 @@ use chunk::{
     UploadRequest, UploadResponse,
 };
 
-#[derive(Debug, Default)]
+#[derive(Clone, Debug, Default)]
 pub struct ChunkService {
-    addr_str: String,
+    addr: String,                               // Chunkserver address
+    addr_sanitized: String,                     // Sanitized address, used for file directories
     files: Arc<Mutex<HashMap<String, String>>>, // Track files and their paths
     config: ChunkServerConfig,
+    common_config: CommonConfig,
 }
 
 impl ChunkService {
-    pub fn new(config: ChunkServerConfig, addr_str: &str) -> Self {
+    pub fn new(
+        addr: &str,
+        addr_sanitized: &str,
+        config: ChunkServerConfig,
+        common_config: CommonConfig,
+    ) -> Self {
         Self {
             files: Arc::new(Mutex::new(HashMap::new())),
-            addr_str: addr_str.to_string(),
+            addr: addr.to_string(),
+            addr_sanitized: addr_sanitized.to_string(),
             config,
+            common_config,
         }
+    }
+
+    pub async fn send_heartbeat(
+        &self,
+        master_client: MasterClient<tonic::transport::Channel>, // Take ownership
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let interval = Duration::from_secs(self.common_config.heartbeat_interval);
+        let addr = self.addr.clone();
+        let files = self.files.clone();
+
+        tokio::spawn(async move {
+            let mut interval = tokio::time::interval(interval);
+            let mut client = master_client; // Move the owned client into the task
+
+            loop {
+                // Heartbeat logic
+                interval.tick().await;
+
+                // Collect chunk information
+                let chunks: Vec<String> = files.lock().await.keys().cloned().collect();
+
+                // Create and send the heartbeat request
+                let request = HeartbeatRequest {
+                    chunkserver_address: addr.clone(),
+                    chunks,
+                };
+
+                match client.heartbeat(tonic::Request::new(request)).await {
+                    Ok(response) => {
+                        println!(
+                            "Heartbeat acknowledged by Master: {}",
+                            response.into_inner().message
+                        );
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to send heartbeat: {}", e);
+                    }
+                }
+            }
+        });
+
+        Ok(())
     }
 }
 
@@ -57,9 +107,11 @@ impl Chunk for ChunkService {
                 Some(chunk::upload_request::Request::Info(info)) => {
                     file_name = info.file_name.clone();
                     println!("Starting upload for file: {}", file_name);
-
-                    let file_path =
-                        format!("{}/{}/{}", self.addr_str, self.config.data_path, file_name);
+                    let chunk_id = info.chunk_id;
+                    let file_path = format!(
+                        "{}/{}/{}_chunk_{}",
+                        self.addr_sanitized, self.config.data_path, file_name, chunk_id
+                    );
                     println!("Saving file to: {}", file_path);
 
                     file = Some(tokio::fs::File::create(&file_path).await.map_err(|e| {
@@ -90,8 +142,11 @@ impl Chunk for ChunkService {
     async fn read(&self, request: Request<ReadRequest>) -> Result<Response<ReadResponse>, Status> {
         let req = request.into_inner();
         let file_name = req.file_name;
-        //let chunk_id = req.chunk_id;
-        let file_path = format!("{}/{}/{}", self.addr_str, self.config.data_path, file_name); //TODO: add chunk-id in file name
+        let chunk_id = req.chunk_id;
+        let file_path = format!(
+            "{}/{}/{}_chunk_{}",
+            self.addr_sanitized, self.config.data_path, file_name, chunk_id
+        );
         println!("Fetching file: {}", file_path);
 
         // Read up to the chunk size from the file
@@ -123,8 +178,10 @@ impl Chunk for ChunkService {
         let chunk_id = req.chunk_id;
 
         // Include chunk_id in the file path (if chunks are stored separately by ID)
-        let file_path = format!("{}/{}/{}", self.addr_str, self.config.data_path, file_name);
-
+        let file_path = format!(
+            "{}/{}/{}_chunk_{}",
+            self.addr_sanitized, self.config.data_path, file_name, chunk_id
+        );
         println!("Deleting chunk file: {}", file_path);
 
         fs::remove_file(&file_path).map_err(|e| {
@@ -143,6 +200,7 @@ impl Chunk for ChunkService {
         }))
     }
 
+    /// TODO: currently assuming the last chunk fits the appended content
     async fn append(
         &self,
         request: Request<AppendRequest>,
@@ -152,7 +210,10 @@ impl Chunk for ChunkService {
         let chunk_id = req.chunk_id;
         let data = req.data;
 
-        let file_path = format!("{}/{}/{}", self.addr_str, self.config.data_path, file_name); //TODO: add chunk id
+        let file_path = format!(
+            "{}/{}/{}_chunk_{}",
+            self.addr_sanitized, self.config.data_path, file_name, chunk_id
+        );
         println!("Appending to file: {}", file_path);
 
         let mut file = File::open(&file_path)
@@ -195,11 +256,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Load configuration
     let config = load_config("config.toml")?;
-    let chunkserver_config: ChunkServerConfig =
-        config.chunkserver.expect("ChunkServer config missing");
-    let master_config: MasterConfig = config.master; //TODO: use common config
+    let chunkserver_config: ChunkServerConfig = config.chunkserver;
+    let common_config: CommonConfig = config.common;
 
-    // Create path to data files
+    // Create path to data files of chunkserver
     let sanitized_address = addr.to_string().replace(':', "_"); // Convert to a valid directory name
     let full_data_path = format!("{}/{}", sanitized_address, chunkserver_config.data_path);
     if !std::path::Path::new(&full_data_path).exists() {
@@ -213,23 +273,34 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
     println!("Data directory verified: {}", full_data_path);
 
-    // Start chunkserver service
-    println!("ChunkServer running at {}", addr);
-    let service = ChunkService::new(chunkserver_config, &sanitized_address);
+    // Connect to the master, if no master is available, exit the program
+    let mut master_client = connect_to_master(&common_config.master_addrs).await?;
 
-    let mut master_client = MasterClient::connect(format!(
-        "http://{}:{}",
-        master_config.host, master_config.port
-    ))
-    .await?;
-
-    // Send register request
+    // Send register request to master
     let response = master_client
-        .register_chunk_server(master::RegisterRequest {
+        .register_chunk_server(RegisterRequest {
             address: addr.to_string(),
         })
         .await?;
     println!("Registered with Master: {}", response.into_inner().message);
+
+    // Start chunkserver service
+    println!("ChunkServer running at {}", addr);
+    let service = ChunkService::new(
+        &addr.to_string(),
+        &sanitized_address,
+        chunkserver_config,
+        common_config,
+    );
+
+    // Clone the master_client and spawn the heartbeat task at background
+    let heartbeat_client = master_client.clone();
+    let heartbeat_service = service.clone();
+    tokio::spawn(async move {
+        if let Err(e) = heartbeat_service.send_heartbeat(heartbeat_client).await {
+            eprintln!("Heartbeat task failed: {}", e);
+        }
+    });
 
     Server::builder()
         .add_service(ChunkServer::new(service))

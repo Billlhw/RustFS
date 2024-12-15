@@ -1,5 +1,4 @@
 // Implements the internal logic and utilities of the MasterService struct
-
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::Arc;
@@ -10,7 +9,7 @@ use tokio::time::{self, Duration};
 use crate::config::{CommonConfig, MasterConfig};
 use crate::proto::master;
 
-// Import the Master service and message
+// Import the Master service and messages
 use crate::proto::chunk::chunk_client::ChunkClient;
 use crate::proto::chunk::SendChunkRequest;
 use master::ChunkInfo;
@@ -39,7 +38,9 @@ impl MasterService {
             common_config,
         }
     }
-
+    pub fn is_leader(&self) -> bool {
+        self.addr == self.config.master_address
+    }
     /// Starts a periodic task to check for failed chunk servers and reassign their chunks.
     pub async fn start_heartbeat_checker(&self) {
         let interval = self.config.cron_interval; // Interval for the periodic task

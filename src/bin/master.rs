@@ -1,24 +1,23 @@
 use clap::{Arg, Command};
 use std::net::SocketAddr;
-
 use tonic::transport::Server;
 
-use rustfs::config::{load_config, CommonConfig, MasterConfig};
+use rustfs::config::load_config;
+use rustfs::master_impl::determine_leader; // Import determine_leader from master_impl.rs
 use rustfs::master_service::MasterService;
 use rustfs::proto::master;
 
-// Using modules master_impl and master_service from `src/`
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse command line arguments
-    let matches = Command::new("ChunkServer")
+    let matches = Command::new("MasterServer")
         .version("1.0")
-        .about("Starts a ChunkServer")
+        .about("Starts a MasterServer")
         .arg(
             Arg::new("address")
                 .short('a')
                 .value_name("ADDR")
-                .help("Sets the address for the ChunkServer (e.g., 127.0.0.1:50010)")
+                .help("Sets the address for the MasterServer (e.g., 127.0.0.1:50051)")
                 .required(true),
         )
         .get_matches();
@@ -29,20 +28,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Load configuration
     let config = load_config("config.toml")?;
-    let master_config: MasterConfig = config.master;
-    let common_config: CommonConfig = config.common;
+    let common_config = config.common;
 
-    // Create the server address
     println!("MasterServer running at {}", addr);
-    let master_service = MasterService::new(addr, master_config, common_config);
-    let addr_socket: SocketAddr = addr.parse()?;
-
-    // Periodic checker to move load from failed chunkserver to available chunkservers
-    master_service.start_heartbeat_checker().await;
 
     Server::builder()
         .add_service(master::master_server::MasterServer::new(master_service))
-        .serve(addr_socket)
+        .serve(addr.parse::<SocketAddr>()?)
         .await?;
 
     Ok(())

@@ -1,3 +1,4 @@
+// Implements the gRPC server behavior defined in the Master trait
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -5,7 +6,8 @@ use tonic::{Request, Response, Status};
 
 use crate::proto::master::{
     AssignRequest, AssignResponse, ChunkInfo, FileChunkMapping, FileChunkMappingRequest,
-    HeartbeatRequest, HeartbeatResponse, RegisterRequest, RegisterResponse,
+    HeartbeatRequest, HeartbeatResponse, PingMasterRequest, PingMasterResponse, RegisterRequest,
+    RegisterResponse,
 };
 
 // Import `MasterService` from `master_service.rs`
@@ -236,4 +238,63 @@ impl Master for MasterService {
 
         Ok(Response::new(FileChunkMapping { file_name, chunks }))
     }
+    async fn ping_master(
+        &self,
+        request: Request<PingMasterRequest>,
+    ) -> Result<Response<PingMasterResponse>, Status> {
+        let sender_address = request.into_inner().sender_address;
+        println!("Received ping from: {}", sender_address);
+
+        let is_leader = self.is_leader();
+        let leader_address = if is_leader {
+            self.addr.clone() // Return self if this node is the leader
+        } else {
+            self.config.master_address.clone() // Return the current leader's address
+        };
+
+        Ok(Response::new(PingMasterResponse {
+            is_leader,
+            leader_address,
+        }))
+    }
+}
+
+/// Determines the leader among all configured master nodes.
+///
+/// - Tries to connect to all nodes listed in `master_addrs`.
+/// - Returns the leader's address if found; otherwise, `None`.
+pub async fn determine_leader(self_addr: &str, master_addrs: &[String]) -> Option<String> {
+    for addr in master_addrs {
+        if addr == self_addr {
+            continue; // Skip checking itself
+        }
+
+        let target_url = format!("http://{}", addr);
+        match crate::proto::master::master_client::MasterClient::connect(target_url).await {
+            Ok(mut client) => {
+                let request = tonic::Request::new(PingMasterRequest {
+                    sender_address: self_addr.to_string(),
+                });
+
+                match client.ping_master(request).await {
+                    Ok(response) => {
+                        let response = response.into_inner();
+                        if response.is_leader {
+                            println!("Found leader at {}", response.leader_address);
+                            return Some(response.leader_address);
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to contact master at {}: {}", addr, e);
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Failed to connect to {}: {}", addr, e);
+            }
+        }
+    }
+
+    // No leader found
+    None
 }

@@ -81,8 +81,7 @@ message ChunkList {
 message Metadata {
   map<string, ChunkList> file_chunks = 1;
   map<string, ChunkList> chunk_servers = 2;
-  map<string, uint64> last_heartbeat_time = 3;
-  map<string, ChunkInfo> chunk_map = 4;
+  map<string, ChunkInfo> chunk_map = 3;
 }
 
 message UpdateMetadataRequest {

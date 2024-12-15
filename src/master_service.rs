@@ -9,7 +9,7 @@ use tokio::time::{self, Duration};
 
 use crate::config::{CommonConfig, MasterConfig};
 use crate::proto::master;
-use crate::proto::master::UpdateMetadataRequest;
+use crate::proto::master::{PingMasterRequest, UpdateMetadataRequest};
 
 // Import the Master service and messages
 use crate::proto::chunk::chunk_client::ChunkClient;
@@ -20,7 +20,6 @@ use master::ChunkInfo;
 pub struct Metadata {
     pub file_chunks: HashMap<String, Vec<ChunkInfo>>,
     pub chunk_servers: HashMap<String, Vec<ChunkInfo>>,
-    pub last_heartbeat_time: HashMap<String, u64>,
     pub chunk_map: HashMap<String, ChunkInfo>,
 }
 
@@ -52,7 +51,6 @@ impl Into<UpdateMetadataRequest> for Metadata {
                         )
                     })
                     .collect(),
-                last_heartbeat_time: self.last_heartbeat_time,
                 chunk_map: self
                     .chunk_map
                     .into_iter()
@@ -63,17 +61,6 @@ impl Into<UpdateMetadataRequest> for Metadata {
     }
 }
 
-// TODO
-// impl From<ChunkInfo> for crate::proto::master::ChunkInfo {
-//     fn from(chunk_info: ChunkInfo) -> Self {
-//         crate::proto::master::ChunkInfo {
-//             chunk_id: chunk_info.chunk_id,
-//             server_addresses: chunk_info.server_addresses,
-//             version: chunk_info.version,
-//         }
-//     }
-// }
-
 #[derive(Debug, Default)]
 pub struct MasterService {
     pub file_chunks: Arc<RwLock<HashMap<String, Vec<ChunkInfo>>>>, // File -> List of ChunkInfo
@@ -82,13 +69,21 @@ pub struct MasterService {
     pub chunk_map: Arc<RwLock<HashMap<String, ChunkInfo>>>,     // chunkID -> ChunkInfo
     pub config: MasterConfig,
     pub common_config: CommonConfig,
-    pub addr: String, // TODO: use it in heartbeat to the master node
+    pub addr: String,
     pub shadow_masters: Arc<RwLock<HashSet<String>>>, // Set of shadow master node addresses
+    pub current_master: Arc<RwLock<String>>,          // Stores the current master address
+    pub is_leader_flag: Arc<RwLock<bool>>,            // Indicates if this node is the leader
 }
 
 // Implement a constructor for MasterService
 impl MasterService {
-    pub fn new(addr: &str, config: MasterConfig, common_config: CommonConfig) -> Self {
+    pub fn new(
+        addr: &str,
+        config: MasterConfig,
+        common_config: CommonConfig,
+        is_leader: bool,
+        current_master: &str,
+    ) -> Self {
         Self {
             file_chunks: Arc::new(RwLock::new(HashMap::new())),
             chunk_servers: Arc::new(RwLock::new(HashMap::new())),
@@ -98,11 +93,78 @@ impl MasterService {
             config, // Store the configuration, field init shorthand
             common_config,
             shadow_masters: Arc::new(RwLock::new(HashSet::new())),
+            current_master: Arc::new(RwLock::new(current_master.to_string())),
+            is_leader_flag: Arc::new(RwLock::new(is_leader)),
         }
     }
 
-    pub fn is_leader(&self) -> bool {
-        self.addr == self.config.master_address
+    pub async fn is_leader(&self) -> bool {
+        let is_leader_lock = self.is_leader_flag.read().await;
+        *is_leader_lock
+    }
+
+    /// Used by shadow masters to ping the master to check its availability
+    pub async fn start_shadow_master_ping_task(self: Arc<Self>) {
+        let current_master = Arc::clone(&self.current_master);
+        let is_leader_flag = Arc::clone(&self.is_leader_flag);
+        let addr = self.addr.clone();
+        let common_config = self.common_config.clone();
+
+        tokio::spawn(async move {
+            let mut interval = time::interval(Duration::from_secs(
+                common_config.shadow_master_ping_interval,
+            ));
+            loop {
+                interval.tick().await;
+
+                // Get the current master address
+                let master_address = {
+                    let master_lock = current_master.read().await;
+                    master_lock.clone()
+                };
+
+                // Skip if this node is already the leader
+                let is_leader = {
+                    let leader_lock = is_leader_flag.read().await;
+                    *leader_lock
+                };
+                if is_leader {
+                    continue;
+                }
+
+                // Attempt to ping the master
+                let master_url = format!("http://{}", master_address);
+                match master::master_client::MasterClient::connect(master_url).await {
+                    Ok(mut client) => {
+                        let request = tonic::Request::new(PingMasterRequest {
+                            sender_address: addr.clone(),
+                        });
+
+                        match client.ping_master(request).await {
+                            Ok(_) => {
+                                println!("[Shadow Master] Master is alive at {}", master_address)
+                            }
+                            Err(e) => eprintln!("[Shadow Master] Ping failed: {}", e),
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("[Shadow Master] Failed to connect to master: {}", e);
+
+                        // Assume leadership
+                        {
+                            let mut leader_lock = is_leader_flag.write().await;
+                            *leader_lock = true;
+                        }
+                        println!("[Shadow Master] Taking over as leader");
+
+                        // Start the heartbeat checker as the new leader
+                        self.start_heartbeat_checker().await;
+
+                        break; // Exit the ping loop
+                    }
+                }
+            }
+        });
     }
 
     /// Propagate metadata updates to shadow masters
@@ -128,7 +190,6 @@ impl MasterService {
         Metadata {
             file_chunks: self.file_chunks.read().await.clone(),
             chunk_servers: self.chunk_servers.read().await.clone(),
-            last_heartbeat_time: self.last_heartbeat_time.read().await.clone(),
             chunk_map: self.chunk_map.read().await.clone(),
         }
     }

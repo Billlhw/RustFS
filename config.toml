@@ -3,7 +3,6 @@
 log_path = "logs"                  # log storage
 cron_interval = 5                  # Interval for load balancing periodic task (in seconds)
 heartbeat_failure_threshold = 2    # Maximum multiple of heartbeat_interval, after which the server is considered unavailable
-master_address = "127.0.0.1:50001"
 
 [chunkserver]
 data_path = "data" # Path to chunk data storage
@@ -19,6 +18,7 @@ master_addrs = [
     "127.0.0.1:50003",
 ] # Using 2 shadow masters by default
 heartbeat_interval = 10 # Heartbeat interval from ChunkServer (in seconds)
+shadow_master_ping_interval = 5 # Ping interval for shadow masters (in seconds)
 chunk_size = 4096 # Chunk size (in bytes)
 max_allowed_chunks = 100 # Maximum number of chunks each chunkserver can store
 replication_factor = 2 # Number of chunk replicas

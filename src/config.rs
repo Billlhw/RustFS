@@ -3,7 +3,6 @@ use std::fs;
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct MasterConfig {
-    pub master_address: String,
     pub log_path: String,
     pub cron_interval: u64, // Interval for load balancing cron job
     pub heartbeat_failure_threshold: u64, // Determines when a chunkserver is considered unavailable
@@ -22,16 +21,17 @@ pub struct ClientConfig {
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct CommonConfig {
-    pub master_addrs: Vec<String>, // List of master addresses
-    pub heartbeat_interval: u64,   // Heartbeat interval in seconds
-    pub chunk_size: u64,           // Chunk size in bytes
-    pub max_allowed_chunks: usize, // Maximum number of chunks per chunkserver
-    pub replication_factor: usize, // Number of chunk replicas
-    pub log_level: String,         // Log level (e.g., "debug", "info", etc.)
-    pub log_output: String,        // Log output (e.g., "stdout", "file", etc.)
+    pub master_addrs: Vec<String>,        // List of master addresses
+    pub heartbeat_interval: u64,          // Heartbeat interval in seconds
+    pub shadow_master_ping_interval: u64, // Shadow master ping interval in seconds
+    pub chunk_size: u64,                  // Chunk size in bytes
+    pub max_allowed_chunks: usize,        // Maximum number of chunks per chunkserver
+    pub replication_factor: usize,        // Number of chunk replicas
+    pub log_level: String,                // Log level (e.g., "debug", "info", etc.)
+    pub log_output: String,               // Log output (e.g., "stdout", "file", etc.)
 }
 
-#[derive(Debug, Deserialize)]
+#[derive(Clone, Debug, Deserialize)]
 pub struct Config {
     pub master: MasterConfig,
     pub chunkserver: ChunkServerConfig,

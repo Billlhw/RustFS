@@ -1,6 +1,7 @@
 // Implements the gRPC server behavior defined in the Master trait
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tonic::{Request, Response, Status};
 
@@ -15,7 +16,7 @@ use crate::master_service::MasterService;
 use crate::proto::master::master_server::Master;
 
 #[tonic::async_trait]
-impl Master for MasterService {
+impl Master for Arc<MasterService> {
     async fn register_chunk_server(
         &self,
         request: Request<RegisterRequest>,
@@ -59,12 +60,20 @@ impl Master for MasterService {
                 .collect();
         }
         {
-            let mut last_heartbeat_time = self.last_heartbeat_time.write().await;
-            *last_heartbeat_time = metadata.last_heartbeat_time.into();
-        }
-        {
             let mut chunk_map = self.chunk_map.write().await;
             *chunk_map = metadata.chunk_map.into();
+        }
+
+        // Print the entire updated metadata
+        {
+            let file_chunks = self.file_chunks.read().await;
+            let chunk_servers = self.chunk_servers.read().await;
+            let chunk_map = self.chunk_map.read().await;
+
+            println!("[update_metadata] Updated Metadata:");
+            println!("file_chunks: {:#?}", *file_chunks);
+            println!("chunk_servers: {:#?}", *chunk_servers);
+            println!("chunk_map: {:#?}", *chunk_map);
         }
 
         println!("Updated metadata from leader");
@@ -251,6 +260,9 @@ impl Master for MasterService {
             file_name, num_chunks
         );
 
+        // Send updated metadata to registered shadow masters
+        self.propagate_metadata_updates().await;
+
         // Return the response
         Ok(Response::new(AssignResponse {
             file_name: updated_file_name,
@@ -275,6 +287,7 @@ impl Master for MasterService {
         Ok(Response::new(FileChunkMapping { file_name, chunks }))
     }
 
+    /// Handle ping master requests
     async fn ping_master(
         &self,
         request: Request<PingMasterRequest>,
@@ -282,7 +295,7 @@ impl Master for MasterService {
         let sender_address = request.into_inner().sender_address;
         println!("[ping_master] Received ping from: {}", sender_address);
 
-        if self.is_leader() {
+        if self.is_leader().await {
             let mut shadow_masters = self.shadow_masters.write().await;
             shadow_masters.insert(sender_address.clone());
             println!(
@@ -292,7 +305,7 @@ impl Master for MasterService {
         }
 
         Ok(Response::new(PingMasterResponse {
-            is_leader: self.is_leader(),
+            is_leader: self.is_leader().await,
         }))
     }
 }

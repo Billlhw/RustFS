@@ -1,10 +1,10 @@
 use clap::{Arg, Command};
 use std::net::SocketAddr;
+use std::sync::Arc;
 use tonic::transport::Server;
 
 use crate::master::PingMasterRequest;
 use rustfs::config::load_config;
-use rustfs::master_impl::determine_leader; // Import determine_leader from master_impl.rs
 use rustfs::master_service::MasterService;
 use rustfs::proto::master;
 
@@ -35,6 +35,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Determine the leader
     let mut leader_found = false;
+    let mut actural_master_addr = addr;
     for master_addr in &common_config.master_addrs {
         if master_addr == addr {
             continue; // Skip pinging itself
@@ -52,11 +53,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                         let response = response.into_inner();
                         if response.is_leader {
                             println!("Leader found at: {}", master_addr);
+                            actural_master_addr = master_addr;
                             leader_found = true;
                             break;
                         }
                     }
-                    Err(e) => eprintln!("Failed to contact master at {}: {}", master_addr, e),
+                    Err(e) => {
+                        eprintln!("Failed to contact master at {}: {}", actural_master_addr, e)
+                    }
                 }
             }
             Err(e) => eprintln!("Failed to connect to {}: {}", master_addr, e),
@@ -64,18 +68,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let is_leader = !leader_found;
+
+    let master_service = Arc::new(MasterService::new(
+        &addr,
+        config.master,
+        common_config.clone(),
+        is_leader,
+        actural_master_addr,
+    ));
     if is_leader {
         println!("No leader found. This node will act as the leader.");
+        Arc::clone(&master_service).start_heartbeat_checker().await;
     } else {
         println!("This node is not the leader.");
-    }
-
-    let master_service = MasterService::new(&addr, config.master, common_config);
-
-    if is_leader {
-        master_service.start_heartbeat_checker().await;
-    } else {
-        // TODO: save the leader address and periodically ping the leader to check if it is available
+        Arc::clone(&master_service)
+            .start_shadow_master_ping_task()
+            .await;
     }
 
     Server::builder()

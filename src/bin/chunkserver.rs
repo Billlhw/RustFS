@@ -1,5 +1,5 @@
 use clap::{Arg, Command};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashSet;
 use std::fs;
 use std::net::SocketAddr;
 use std::sync::Arc;

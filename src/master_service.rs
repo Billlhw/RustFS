@@ -1,3 +1,5 @@
+// Implements the internal logic and utilities of the MasterService struct
+
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap};
 use std::sync::Arc;
@@ -8,7 +10,9 @@ use tokio::time::{self, Duration};
 use crate::config::{CommonConfig, MasterConfig};
 use crate::proto::master;
 
-// Import the Master service and messages
+// Import the Master service and message
+use crate::proto::chunk::chunk_client::ChunkClient;
+use crate::proto::chunk::SendChunkRequest;
 use master::ChunkInfo;
 
 #[derive(Debug, Default)]
@@ -35,7 +39,8 @@ impl MasterService {
             common_config,
         }
     }
-    // Starts a periodic task to check for failed chunk servers and reassign their chunks.
+
+    /// Starts a periodic task to check for failed chunk servers and reassign their chunks.
     pub async fn start_heartbeat_checker(&self) {
         let interval = self.config.cron_interval; // Interval for the periodic task
         let heartbeat_failure_threshold = self.config.heartbeat_failure_threshold; // Threashold for determining server failure, in number of heartbeat_intervals

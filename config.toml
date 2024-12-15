@@ -1,6 +1,8 @@
 # config.toml
 [master]
 log_path = "logs"          # log storage
+cron_interval = 5          # Interval for load balancing periodic task (in seconds)
+heartbeat_failure_threshold = 2 # Maximum multiple of heartbeat_interval, after which the server is considered unavailable
 
 [chunkserver]
 data_path = "data"      # Path to chunk data storage
@@ -11,9 +13,9 @@ log_path = "client/logs" # Path to client log storage
 
 [common]
 master_addrs = ["127.0.0.1:50001", "127.0.0.1:50002", "127.0.0.1:50003"] # Using 2 shadow masters by default
-heartbeat_interval = 20                  # Heartbeat interval from ChunkServer (in seconds)
+heartbeat_interval = 10                  # Heartbeat interval from ChunkServer (in seconds)
 chunk_size = 4096                        # Chunk size (in bytes)
 max_allowed_chunks = 100                 # Maximum number of chunks each chunkserver can store
-replication_factor = 3                   # Number of chunk replicas
+replication_factor = 2                   # Number of chunk replicas
 log_level = "info"                       # Options are "debug", "info", "warn", "error"
 log_output = "stdout"                    # Options are "stdout", "file"

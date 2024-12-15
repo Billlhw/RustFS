@@ -15,6 +15,16 @@ service Master {
 
   // Handle Heartbeat from ChunkServer
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+
+  rpc PingMaster(PingMasterRequest) returns (PingMasterResponse);
+}
+
+message PingMasterRequest {
+    string sender_address = 1; // Send ping address
+}
+message PingMasterResponse {
+    bool is_leader = 1;        // 1 if is leader node
+    string leader_address = 2; // If the node is not leader, return leader node's address
 }
 
 // Request and Response messages

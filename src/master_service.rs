@@ -305,6 +305,13 @@ impl MasterService {
                         }
                     }
                 }
+                // Remove all failed servers from the last_heartbeat_time hashmap
+                {
+                    let mut last_heartbeat_lock = last_heartbeat_time.write().await;
+                    for failed_server in &failed_servers {
+                        last_heartbeat_lock.remove(failed_server);
+                    }
+                }
             }
         });
     }

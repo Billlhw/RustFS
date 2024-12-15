@@ -16,15 +16,19 @@ service Master {
   // Handle Heartbeat from ChunkServer
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
 
+  // Used by shadow masters to ping the master
   rpc PingMaster(PingMasterRequest) returns (PingMasterResponse);
+
+  // Propagate metadata updates to the shadow master
+  rpc UpdateMetadata(UpdateMetadataRequest) returns (UpdateMetadataResponse);
 }
 
 message PingMasterRequest {
-    string sender_address = 1; // Send ping address
+    string sender_address = 1; // Sender address
 }
+
 message PingMasterResponse {
     bool is_leader = 1;        // 1 if is leader node
-    string leader_address = 2; // If the node is not leader, return leader node's address
 }
 
 // Request and Response messages
@@ -68,4 +72,23 @@ message HeartbeatRequest {
 
 message HeartbeatResponse {
   string message = 1; // Heartbeat response message
+}
+
+message ChunkList {
+  repeated ChunkInfo chunks = 1;
+}
+
+message Metadata {
+  map<string, ChunkList> file_chunks = 1;
+  map<string, ChunkList> chunk_servers = 2;
+  map<string, uint64> last_heartbeat_time = 3;
+  map<string, ChunkInfo> chunk_map = 4;
+}
+
+message UpdateMetadataRequest {
+  Metadata metadata = 1; 
+}
+
+message UpdateMetadataResponse {
+  string message = 1; // Confirmation of metadata update
 }

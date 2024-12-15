@@ -7,7 +7,7 @@ use tonic::{Request, Response, Status};
 use crate::proto::master::{
     AssignRequest, AssignResponse, ChunkInfo, FileChunkMapping, FileChunkMappingRequest,
     HeartbeatRequest, HeartbeatResponse, PingMasterRequest, PingMasterResponse, RegisterRequest,
-    RegisterResponse,
+    RegisterResponse, UpdateMetadataRequest, UpdateMetadataResponse,
 };
 
 // Import `MasterService` from `master_service.rs`
@@ -34,6 +34,42 @@ impl Master for MasterService {
                 "Chunk server '{}' registered successfully.",
                 chunkserver_address
             ),
+        }))
+    }
+
+    async fn update_metadata(
+        &self,
+        request: Request<UpdateMetadataRequest>,
+    ) -> Result<Response<UpdateMetadataResponse>, Status> {
+        let metadata = request.into_inner().metadata.unwrap();
+        {
+            let mut file_chunks = self.file_chunks.write().await;
+            *file_chunks = metadata
+                .file_chunks
+                .into_iter()
+                .map(|(key, chunk_list)| (key, chunk_list.chunks)) // Extract chunks from ChunkList
+                .collect();
+        }
+        {
+            let mut chunk_servers = self.chunk_servers.write().await;
+            *chunk_servers = metadata
+                .chunk_servers
+                .into_iter()
+                .map(|(key, chunk_list)| (key, chunk_list.chunks)) // Extract chunks from ChunkList
+                .collect();
+        }
+        {
+            let mut last_heartbeat_time = self.last_heartbeat_time.write().await;
+            *last_heartbeat_time = metadata.last_heartbeat_time.into();
+        }
+        {
+            let mut chunk_map = self.chunk_map.write().await;
+            *chunk_map = metadata.chunk_map.into();
+        }
+
+        println!("Updated metadata from leader");
+        Ok(Response::new(UpdateMetadataResponse {
+            message: "Metadata update applied successfully".to_string(),
         }))
     }
 
@@ -244,18 +280,19 @@ impl Master for MasterService {
         request: Request<PingMasterRequest>,
     ) -> Result<Response<PingMasterResponse>, Status> {
         let sender_address = request.into_inner().sender_address;
-        println!("Received ping from: {}", sender_address);
+        println!("[ping_master] Received ping from: {}", sender_address);
 
-        let is_leader = self.is_leader();
-        let leader_address = if is_leader {
-            self.addr.clone() // Return self if this node is the leader
-        } else {
-            self.config.master_address.clone() // Return the current leader's address
-        };
+        if self.is_leader() {
+            let mut shadow_masters = self.shadow_masters.write().await;
+            shadow_masters.insert(sender_address.clone());
+            println!(
+                "[ping_master] Registered '{}' as a shadow master",
+                sender_address
+            );
+        }
 
         Ok(Response::new(PingMasterResponse {
-            is_leader,
-            leader_address,
+            is_leader: self.is_leader(),
         }))
     }
 }
@@ -281,8 +318,8 @@ pub async fn determine_leader(self_addr: &str, master_addrs: &[String]) -> Optio
                     Ok(response) => {
                         let response = response.into_inner();
                         if response.is_leader {
-                            println!("Found leader at {}", response.leader_address);
-                            return Some(response.leader_address);
+                            println!("Found leader at {}", addr);
+                            return Some(addr.clone());
                         }
                     }
                     Err(e) => {

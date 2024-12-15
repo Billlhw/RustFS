@@ -1,6 +1,7 @@
 // Implements the internal logic and utilities of the MasterService struct
+use serde::{Deserialize, Serialize};
 use std::cmp::Reverse;
-use std::collections::{BinaryHeap, HashMap};
+use std::collections::{BinaryHeap, HashMap, HashSet};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
@@ -8,11 +9,70 @@ use tokio::time::{self, Duration};
 
 use crate::config::{CommonConfig, MasterConfig};
 use crate::proto::master;
+use crate::proto::master::UpdateMetadataRequest;
 
 // Import the Master service and messages
 use crate::proto::chunk::chunk_client::ChunkClient;
 use crate::proto::chunk::SendChunkRequest;
 use master::ChunkInfo;
+
+#[derive(Serialize, Deserialize, Clone)]
+pub struct Metadata {
+    pub file_chunks: HashMap<String, Vec<ChunkInfo>>,
+    pub chunk_servers: HashMap<String, Vec<ChunkInfo>>,
+    pub last_heartbeat_time: HashMap<String, u64>,
+    pub chunk_map: HashMap<String, ChunkInfo>,
+}
+
+impl Into<UpdateMetadataRequest> for Metadata {
+    fn into(self) -> UpdateMetadataRequest {
+        UpdateMetadataRequest {
+            metadata: Some(crate::proto::master::Metadata {
+                file_chunks: self
+                    .file_chunks
+                    .into_iter()
+                    .map(|(key, value)| {
+                        (
+                            key,
+                            crate::proto::master::ChunkList {
+                                chunks: value.into_iter().map(|chunk| chunk.into()).collect(),
+                            },
+                        )
+                    })
+                    .collect(),
+                chunk_servers: self
+                    .chunk_servers
+                    .into_iter()
+                    .map(|(key, value)| {
+                        (
+                            key,
+                            crate::proto::master::ChunkList {
+                                chunks: value.into_iter().map(|chunk| chunk.into()).collect(),
+                            },
+                        )
+                    })
+                    .collect(),
+                last_heartbeat_time: self.last_heartbeat_time,
+                chunk_map: self
+                    .chunk_map
+                    .into_iter()
+                    .map(|(key, value)| (key, value.into()))
+                    .collect(),
+            }),
+        }
+    }
+}
+
+// TODO
+// impl From<ChunkInfo> for crate::proto::master::ChunkInfo {
+//     fn from(chunk_info: ChunkInfo) -> Self {
+//         crate::proto::master::ChunkInfo {
+//             chunk_id: chunk_info.chunk_id,
+//             server_addresses: chunk_info.server_addresses,
+//             version: chunk_info.version,
+//         }
+//     }
+// }
 
 #[derive(Debug, Default)]
 pub struct MasterService {
@@ -23,6 +83,7 @@ pub struct MasterService {
     pub config: MasterConfig,
     pub common_config: CommonConfig,
     pub addr: String, // TODO: use it in heartbeat to the master node
+    pub shadow_masters: Arc<RwLock<HashSet<String>>>, // Set of shadow master node addresses
 }
 
 // Implement a constructor for MasterService
@@ -36,11 +97,55 @@ impl MasterService {
             addr: addr.to_string(),
             config, // Store the configuration, field init shorthand
             common_config,
+            shadow_masters: Arc::new(RwLock::new(HashSet::new())),
         }
     }
 
     pub fn is_leader(&self) -> bool {
         self.addr == self.config.master_address
+    }
+
+    /// Propagate metadata updates to shadow masters
+    pub async fn propagate_metadata_updates(&self) {
+        let metadata = self.collect_metadata().await;
+
+        let shadow_masters = self.shadow_masters.read().await;
+        for shadow_master in shadow_masters.iter() {
+            if let Err(e) = self
+                .send_metadata_to_shadow_master(shadow_master, &metadata)
+                .await
+            {
+                eprintln!(
+                    "Failed to send metadata to shadow master {}: {}",
+                    shadow_master, e
+                );
+            }
+        }
+    }
+
+    /// Collect metadata of the master node
+    async fn collect_metadata(&self) -> Metadata {
+        Metadata {
+            file_chunks: self.file_chunks.read().await.clone(),
+            chunk_servers: self.chunk_servers.read().await.clone(),
+            last_heartbeat_time: self.last_heartbeat_time.read().await.clone(),
+            chunk_map: self.chunk_map.read().await.clone(),
+        }
+    }
+
+    /// Send the metatdata to a shadow master
+    async fn send_metadata_to_shadow_master(
+        &self,
+        shadow_master: &str,
+        metadata: &crate::master_service::Metadata, // Use the correct module path
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        let mut client =
+            master::master_client::MasterClient::connect(format!("http://{}", shadow_master))
+                .await?;
+        client
+            .update_metadata(tonic::Request::new(metadata.clone().into())) // Use `Into<UpdateMetadataRequest>`
+            .await?;
+        Ok(())
     }
 
     /// Starts a periodic task to check for failed chunk servers and reassign their chunks.

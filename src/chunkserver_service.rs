@@ -5,6 +5,7 @@ use tokio::time::Duration;
 
 use crate::config::{ChunkServerConfig, CommonConfig};
 use crate::proto::master::{master_client::MasterClient, HeartbeatRequest};
+use crate::util::connect_to_master;
 
 #[derive(Clone, Debug, Default)]
 pub struct ChunkService {
@@ -35,17 +36,23 @@ impl ChunkService {
         &self,
         master_client: MasterClient<tonic::transport::Channel>, // Take ownership
     ) -> Result<(), Box<dyn std::error::Error>> {
-        let interval = Duration::from_secs(self.common_config.heartbeat_interval);
+        let interval_duration = Duration::from_secs(self.common_config.heartbeat_interval);
         let addr = self.addr.clone();
-        let server_chunks = self.server_chunks.clone(); //create a new pointer to the hashset
+        let server_chunks = self.server_chunks.clone(); // Clone the Arc<Mutex<HashSet>> pointer
+        let master_addrs = self.common_config.master_addrs.clone(); // Clone master_addrs to ensure 'static lifetime
+        let mut first_time_reconnected = false;
 
         tokio::spawn(async move {
-            let mut interval = tokio::time::interval(interval);
+            let mut interval = tokio::time::interval(interval_duration);
             let mut client = master_client; // Move the owned client into the task
 
             loop {
-                // Heartbeat logic
-                interval.tick().await;
+                // Wait for interval seconds
+                if !first_time_reconnected {
+                    interval.tick().await;
+                } else {
+                    first_time_reconnected = false;
+                }
 
                 // Collect chunk information
                 let chunks: Vec<String> = server_chunks
@@ -70,6 +77,19 @@ impl ChunkService {
                     }
                     Err(e) => {
                         eprintln!("Failed to send heartbeat: {}", e);
+
+                        // Attempt to reconnect to the master
+                        match connect_to_master(&master_addrs).await {
+                            Ok(new_client) => {
+                                println!("Reconnected to Master");
+                                client = new_client;
+                                first_time_reconnected = true; // Avoid waiting for heartbeat_interval before retrying
+                            }
+                            Err(e) => {
+                                eprintln!("Failed to reconnect to Master: {}", e);
+                                break; // Exit the loop on repeated failures
+                            }
+                        }
                     }
                 }
             }

@@ -169,11 +169,10 @@ impl MasterService {
 
     /// Propagate metadata updates to shadow masters
     pub async fn propagate_metadata_updates(&self) {
-        println!("testing, sending metadata");
         let metadata = self.collect_metadata().await;
-        println!("testing, got metadata");
         let shadow_masters = self.shadow_masters.read().await;
-        println!("shadow masters {:?}", shadow_masters);
+        println!("Sening to shadow masters: {:?}", shadow_masters);
+
         for shadow_master in shadow_masters.iter() {
             if let Err(e) = self
                 .send_metadata_to_shadow_master(shadow_master, &metadata)
@@ -185,7 +184,6 @@ impl MasterService {
                 );
             }
         }
-        println!("done sending");
     }
 
     /// Collect metadata of the master node

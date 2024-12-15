@@ -269,8 +269,6 @@ impl Master for Arc<MasterService> {
         // Send updated metadata to registered shadow masters
         self.propagate_metadata_updates().await;
 
-        println!("Sent to shadow servers");
-
         // Return the response
         Ok(Response::new(AssignResponse {
             file_name: updated_file_name,
@@ -369,11 +367,13 @@ impl Master for Arc<MasterService> {
 
         if self.is_leader().await {
             let mut shadow_masters = self.shadow_masters.write().await;
-            shadow_masters.insert(sender_address.clone());
-            println!(
-                "[ping_master] Registered '{}' as a shadow master",
-                sender_address
-            );
+            // Insert sender_address and check if it was newly added
+            if shadow_masters.insert(sender_address.clone()) {
+                println!(
+                    "[ping_master] Registered '{}' as a shadow master",
+                    sender_address
+                );
+            }
         }
 
         Ok(Response::new(PingMasterResponse {

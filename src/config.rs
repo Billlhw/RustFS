@@ -3,6 +3,7 @@ use std::fs;
 
 #[derive(Clone, Debug, Deserialize, Default)]
 pub struct MasterConfig {
+    pub master_address: String,
     pub log_path: String,
     pub cron_interval: u64, // Interval for load balancing cron job
     pub heartbeat_failure_threshold: u64, // Determines when a chunkserver is considered unavailable

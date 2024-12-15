@@ -6,8 +6,8 @@
   - Haowei Li (1004793565)  
 
 - **Emails**:  
-  - Yiren Zhao: yiren.zhao@example.com  
-  - Haowei Li: haowei.li@example.com  
+  - Yiren Zhao: yiren.zhao@mail.utoronto.ca
+  - Haowei Li: haowei.li@mail.utoronto.ca
 
 
 ## 1. Motivation
@@ -36,8 +36,14 @@ The objective of our project is to develop a scalable, high-available, and high-
 
 ## 4. Reproducibility Guide
 
-### Steps to Reproduce:
+### 4.1 Prerequisites
+- **Operating System**: macOS Sonoma.
+- **Dependencies**: 
+  - Rust (stable toolchain)
+  - Cargo (Rust package manager)
+- **Hardware Requirements**: At least 4GB RAM and 10GB storage.
 
+### 4.2 Build and Run the System
 1. **Clone the Repository**:
     ```
     git clone https://github.com/Billlhw/RustFS.git
@@ -61,21 +67,7 @@ The objective of our project is to develop a scalable, high-available, and high-
       
 ## 5. User’s Guide
 
-### 5.1 Prerequisites
-- **Operating System**: macOS Sonoma.
-- **Dependencies**: 
-  - Rust (stable toolchain)
-  - Cargo (Rust package manager)
-- **Hardware Requirements**: At least 4GB RAM and 10GB storage.
-
-### 5.2 Build and Run the System
-
-#### 5.2.1 Compile Project
-   
-    cargo build --release
-    
-
-#### 5.2.2 Run Master and Chunkservers
+#### 5.1 Run Master and Chunkservers
 1. **Start Master Nodes**:
     ```
     target/release/master -a localhost:50001
@@ -89,7 +81,7 @@ The objective of our project is to develop a scalable, high-available, and high-
     target/release/chunkserver -a localhost:50011
     ```
 
-#### 5.2.3 Run Client Commands
+#### 5.2 Run Client Commands
 1. **Upload a File**:
     ```
     target/release/client upload <file_name>

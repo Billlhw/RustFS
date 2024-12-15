@@ -1,13 +1,8 @@
 # Distributed File System: RustFS
 
-## Team Information
-- **Team Members**:  
-  - Yiren Zhao (1005092427)  
-  - Haowei Li (1004793565)  
-
-- **Emails**:  
-  - Yiren Zhao: yiren.zhao@mail.utoronto.ca
-  - Haowei Li: haowei.li@mail.utoronto.ca
+## Team Information 
+- **Yiren Zhao** (1005092427): yiren.zhao@mail.utoronto.ca
+- **Haowei Li** (1004793565): haowei.li@mail.utoronto.ca
 
 
 ## 1. Motivation
@@ -35,73 +30,184 @@ The objective of our project is to develop a scalable, high-available, and high-
 - **Automated Failure Recovery**: Detects master and chunkserver failures and initiates rebalancing or leader election for recovery.
 
 ## 4. Reproducibility Guide
+This guide explains how to clone, set up, build RustFS step-by-step, ensuring a working distributed file system on your local machine.
 
 ### 4.1 Prerequisites
-- **Operating System**: macOS Sonoma.
-- **Dependencies**: 
-  - Rust (stable toolchain)
-  - Cargo (Rust package manager)
-- **Hardware Requirements**: At least 4GB RAM and 10GB storage.
+Before proceeding, ensure the following requirements are met:
 
-### 4.2 Build and Run the System
-1. **Clone the Repository**:
-    ```
-    git clone https://github.com/Billlhw/RustFS.git
-    cd RustFS
-    ```
+#### Operating System
+- **Supported OS**: macOS Sonoma.
+
+#### Rust Installation
+RustFS requires the Rust programming language and its package manager, Cargo. Install Rust using the official [rustup installer](https://rustup.rs/):
+```
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+```
+
+Once installed, verify the installation:
+```
+rustc --version
+cargo --version
+```
+Ensure Rust version is **1.70+**.
+
+#### Hardware Requirements
+At least 4GB RAM and 10GB storage.
+
+### 4.2 Setting Up RustFS
+
+**Step 1: Clone the Repository**
+
+Clone the RustFS repository from GitHub to your local machine:
+```
+git clone https://github.com/Billlhw/RustFS.git
+cd RustFS
+```
     
-2. **Install Dependencies**:  
-   Ensure you have Rust installed. Install Rust via [rustup](https://rustup.rs/):
-    ```
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
-    ```
+**Step 2: Review the Configuration**
 
-3. **Compile the Code**:
-    ```
-    cargo build --release
-    ```
+Ensure the `config.toml` file is properly set up. This file contains key settings for master nodes, chunkservers, and clients.
 
-4. **Run the System**:
-    - Start the master servers and chunkservers as described in the following User’s Guide.
-    - Run the client commands to test file operations.
+Here’s a sample `config.toml`
+```
+[master]
+log_path = "logs"
+cron_interval = 5
+heartbeat_failure_threshold = 2
+
+[chunkserver]
+data_path = "data"
+log_path = "logs"
+
+[client]
+log_path = "client/logs"
+
+[common]
+master_addrs = ["127.0.0.1:50001", "127.0.0.1:50002", "127.0.0.1:50003"]
+heartbeat_interval = 10
+chunk_size = 4096
+max_allowed_chunks = 100
+replication_factor = 2
+log_level = "info"
+log_output = "stdout"
+```
+Make sure the `master_addrs` lists all master nodes and that `data_path` is a writable directory for chunkservers.
+
+**Step 3: Build the System**
+
+Compile RustFS in release mode:
+```
+cargo build --release
+```
+
+This will generate the following binaries:
+
+- `target/release/master`: Master node executable
+- `target/release/chunkserver`: Chunkserver executable
+- `target/release/client`: Client executable
+
+Ensure these files exist:
+
+```
+ls target/release/master target/release/chunkserver target/release/client
+```
+
+### 4.3 Troubleshooting
+
+**Issue: Compilation Errors**
+- Ensure you have the latest Rust toolchain installed.
+- Run cargo clean and recompile the project:
+  ```
+  cargo clean
+  cargo build --release
+  ```
+
+**Issue: Chunkserver Not Registering**
+- Verify the ```master_addrs``` in ```config.toml``` is correct.
+- Check if the master node is running.
+
+**Issue: Issue: File Operations Fail**
+- Ensure all chunkservers and master nodes are running.
+- Check logs for error messages.
+  
       
-## 5. User’s Guide
+## 5. Running RustFS Guide
+You need to start the **master nodes**, **chunkservers**, and then use the **client** to interact with the system.
 
-#### 5.1 Run Master and Chunkservers
-1. **Start Master Nodes**:
+### Step 1: Start Master Nodes
+    Start multiple master nodes (as part of leader-election and fault tolerance). Run each of the following commands in a separate terminal window:
     ```
     target/release/master -a localhost:50001
     target/release/master -a localhost:50002
     target/release/master -a localhost:50003
     ```
+    Verify the output in each terminal. One of the nodes will elect itself as the leader.
 
-2. **Start Chunkservers**:
-    ```bash
-    target/release/chunkserver -a localhost:50010
-    target/release/chunkserver -a localhost:50011
-    ```
+### Step 2: Start Chunkservers
+Start chunkservers that will store file data. Run each chunkserver in separate terminals:
+```
+target/release/chunkserver -a localhost:50010
+target/release/chunkserver -a localhost:50011
+```
+Ensure the `data_path` directory exists for storing chunk data:
+```
+mkdir -p data
+```
+Verify chunkserver logs to ensure they successfully register with the master node.
 
-#### 5.2 Run Client Commands
-1. **Upload a File**:
-    ```
-    target/release/client upload <file_name>
-    ```
+### Step 3: Test the System Using the Client
 
-2. **Read a File**:
-    ```
-    target/release/client read <file_name>
-    ```
+Once the master nodes and chunkservers are running, use the client to perform file operations. Basic operations including uploading, reading, appending, and deleting files. The following examples demonstrate these operations using ```example.txt``` as the ```<file_name>```:
 
-3. **Append to a File**:
-    ```
-    target/release/client append <file_name> "<data>"
-    ```
+### Command 1: Upload a File
 
-4. **Delete a File**:
-    ```
-    target/release/client delete <file_name>
-    ```
+Upload a file to the distributed file system:
 
+```
+target/release/client upload <file_name>
+```
+
+Expected output:
+```
+Uploading <file_name>...
+File successfully uploaded.
+```
+
+
+### Command 2: Read a File
+Read the contents of a file stored in the system:
+```
+target/release/client read <file_name>
+```
+Expected output:
+```
+Reading <file_name>...
+File contents:
+[contents of <file_name>]
+```
+
+### Command 3: Append to a File
+Append data to the end of an existing file:
+
+```
+target/release/client append <file_name> "<data>"
+```
+Expected output:
+```
+Appending data to <file_name>...
+Append successful.
+```
+
+### Command 4: Delete a File
+Delete a file from the system:
+```
+target/release/client delete <file_name>
+```
+Expected output:
+```
+Deleting <file_name>...
+File successfully deleted.
+```
 
 ## 6. Contributions by Team Members
 - **Yiren Zhao**:

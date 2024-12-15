@@ -35,4 +35,44 @@ impl MasterService {
             common_config,
         }
     }
+    // Starts a periodic task to check for failed chunk servers and reassign their chunks.
+    pub async fn start_heartbeat_checker(&self) {
+        let interval = self.config.cron_interval;
+        let heartbeat_failure_threshold = self.config.heartbeat_failure_threshold;
+        let heartbeat_interval = self.common_config.heartbeat_interval;
+
+        let file_chunks = Arc::clone(&self.file_chunks);
+        let chunk_servers = Arc::clone(&self.chunk_servers);
+        let last_heartbeat_time = Arc::clone(&self.last_heartbeat_time);
+        let chunk_map = Arc::clone(&self.chunk_map);
+        let common_config = self.common_config.clone();
+        let max_allowed_chunks = self.common_config.max_allowed_chunks;
+        // Periodic heartbeat check task implementation
+        tokio::spawn(async move {
+            let mut ticker = time::interval(Duration::from_secs(interval));
+            loop {
+                ticker.tick().await;
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs();
+                // Check for failed servers
+                let mut failed_servers = Vec::new();
+                {
+                    let last_heartbeat = last_heartbeat_time.read().await;
+                    for (server, &last_time) in last_heartbeat.iter() {
+                        if now - last_time > heartbeat_failure_threshold * heartbeat_interval {
+                            failed_servers.push(server.clone());
+                        }
+                    }
+                }
+
+                if failed_servers.is_empty() {
+                    continue;
+                }
+
+                println!("[Cron Task] Failed servers detected: {:?}", failed_servers);
+            }
+        });
+    }
 }

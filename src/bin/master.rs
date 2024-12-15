@@ -37,6 +37,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let master_service = MasterService::new(addr, master_config, common_config);
     let addr_socket: SocketAddr = addr.parse()?;
 
+    // Periodic checker to move load from failed chunkserver to available chunkservers
+    master_service.start_heartbeat_checker().await;
+
     Server::builder()
         .add_service(master::master_server::MasterServer::new(master_service))
         .serve(addr_socket)

@@ -78,7 +78,7 @@ impl Client {
         Ok(randomized_addresses)
     }
 
-    /// Randomly select a server address for each chunk for write operations
+    /// Select a server address for each chunk for write operations
     pub async fn get_primary_server_addresses(
         &mut self,
         file_name: &str,
@@ -104,6 +104,37 @@ impl Client {
         }
 
         Ok(server_addresses)
+    }
+
+    /// Retrieves all server addresses for each chunk of the specified file.
+    ///
+    /// Returns a 2D vector where each inner vector contains the server addresses
+    /// for a single chunk.
+    pub async fn get_all_server_addresses(
+        &mut self,
+        file_name: &str,
+    ) -> Result<Vec<Vec<String>>, Box<dyn std::error::Error>> {
+        let response = self
+            .master_client
+            .get_file_chunks(Request::new(FileChunkMappingRequest {
+                file_name: file_name.to_string(),
+            }))
+            .await?;
+
+        let chunk_info_list = response.into_inner().chunks;
+        let all_server_addresses: Vec<Vec<String>> = chunk_info_list
+            .iter()
+            .map(|chunk| chunk.server_addresses.clone()) // Clone server addresses for each chunk
+            .collect();
+
+        if all_server_addresses.is_empty() {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "No available chunk servers for the file",
+            )));
+        }
+
+        Ok(all_server_addresses)
     }
 
     pub async fn upload_file(
@@ -227,27 +258,46 @@ impl Client {
 
     pub async fn delete_file(
         &self,
-        primary_server_addresses: Vec<String>,
+        all_server_addresses: Vec<Vec<String>>, // 2D vector of server addresses for each chunk
         file_name: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        for (chunk_id, server_address) in primary_server_addresses.iter().enumerate() {
-            // Connect to the chunk server
-            let mut chunk_client =
-                ChunkClient::connect(format!("http://{}", server_address)).await?;
-
-            // Delete the chunk
-            let response = chunk_client
-                .delete(Request::new(DeleteRequest {
-                    file_name: file_name.to_string(),
-                    chunk_id: chunk_id as u64,
-                }))
-                .await?;
-
-            println!(
-                "Delete Response from {}: {}",
-                server_address,
-                response.into_inner().message
-            );
+        for (chunk_id, server_addresses) in all_server_addresses.iter().enumerate() {
+            for server_address in server_addresses {
+                // Connect to the chunk server
+                match ChunkClient::connect(format!("http://{}", server_address)).await {
+                    Ok(mut chunk_client) => {
+                        // Send the delete request
+                        match chunk_client
+                            .delete(Request::new(DeleteRequest {
+                                file_name: file_name.to_string(),
+                                chunk_id: chunk_id as u64,
+                            }))
+                            .await
+                        {
+                            Ok(response) => {
+                                println!(
+                                    "Delete Response from {} for chunk {}: {}",
+                                    server_address,
+                                    chunk_id,
+                                    response.into_inner().message
+                                );
+                            }
+                            Err(e) => {
+                                eprintln!(
+                                    "Failed to delete chunk {} from server {}: {}",
+                                    chunk_id, server_address, e
+                                );
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!(
+                            "Failed to connect to chunk server {} for chunk {}: {}",
+                            server_address, chunk_id, e
+                        );
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -320,6 +370,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }))
                 .await?
                 .into_inner();
+            println!("Got chunk assignment for file: {}", file_name);
 
             if let Err(e) = client
                 .upload_file(assign_response.chunk_info_list, file_name)
@@ -356,7 +407,22 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             let file_name = args[2].as_str();
 
-            // Create DeleteFileRequest
+            // Obtain a complete list of addresses
+            let all_server_addresses =
+                client
+                    .get_all_server_addresses(file_name)
+                    .await
+                    .map_err(|e| {
+                        eprintln!("Error retrieving server addresses: {}", e);
+                        e
+                    })?;
+
+            if all_server_addresses.is_empty() {
+                eprintln!("No chunk servers found for file '{}'.", file_name);
+                return Ok(());
+            }
+
+            // Create DeleteFileRequest for metadata on the Master node
             let request = DeleteFileRequest {
                 file_name: file_name.to_string(),
             };
@@ -381,18 +447,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }
             }
 
-            let primary_server_addresses = client
-                .get_primary_server_addresses(file_name)
-                .await
-                .map_err(|e| {
-                    eprintln!("Error retrieving server addresses: {}", e);
-                    e
-                })?;
-
-            if let Err(e) = client
-                .delete_file(primary_server_addresses, file_name)
-                .await
-            {
+            if let Err(e) = client.delete_file(all_server_addresses, file_name).await {
                 eprintln!("Error during delete: {}", e);
             }
         }

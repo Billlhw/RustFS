@@ -261,8 +261,15 @@ impl Master for Arc<MasterService> {
             file_name, num_chunks
         );
 
+        // Release write locks
+        drop(file_chunks);
+        drop(chunk_servers);
+        drop(chunk_map);
+
         // Send updated metadata to registered shadow masters
         self.propagate_metadata_updates().await;
+
+        println!("Sent to shadow servers");
 
         // Return the response
         Ok(Response::new(AssignResponse {
@@ -308,13 +315,21 @@ impl Master for Arc<MasterService> {
 
             println!("All metadata for file '{}' has been deleted.", file_name);
 
+            // Release write locks
+            drop(file_chunks);
+            drop(chunk_servers);
+            drop(chunk_map);
+
             // Send updated metadata to shadow masters
             self.propagate_metadata_updates().await;
 
             // Return success response
             Ok(Response::new(DeleteFileResponse {
                 success: true,
-                message: format!("File '{}' deleted successfully.", file_name),
+                message: format!(
+                    "File '{}' deleted successfully from master metadata.",
+                    file_name
+                ),
             }))
         } else {
             println!("File '{}' not found. No metadata deleted.", file_name);

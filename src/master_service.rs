@@ -37,25 +37,28 @@ impl MasterService {
     }
     // Starts a periodic task to check for failed chunk servers and reassign their chunks.
     pub async fn start_heartbeat_checker(&self) {
-        let interval = self.config.cron_interval;
-        let heartbeat_failure_threshold = self.config.heartbeat_failure_threshold;
-        let heartbeat_interval = self.common_config.heartbeat_interval;
+        let interval = self.config.cron_interval; // Interval for the periodic task
+        let heartbeat_failure_threshold = self.config.heartbeat_failure_threshold; // Threashold for determining server failure, in number of heartbeat_intervals
+        let heartbeat_interval = self.common_config.heartbeat_interval; // Interval for chunkserver heartbeats
 
-        let file_chunks = Arc::clone(&self.file_chunks);
-        let chunk_servers = Arc::clone(&self.chunk_servers);
-        let last_heartbeat_time = Arc::clone(&self.last_heartbeat_time);
-        let chunk_map = Arc::clone(&self.chunk_map);
+        let file_chunks = Arc::clone(&self.file_chunks); // File -> List of ChunkInfo
+        let chunk_servers = Arc::clone(&self.chunk_servers); // ChunkServer -> List of chunks
+        let last_heartbeat_time = Arc::clone(&self.last_heartbeat_time); // ChunkServer -> Last heartbeat timestamp
+        let chunk_map = Arc::clone(&self.chunk_map); // chunkID -> ChunkInfo
         let common_config = self.common_config.clone();
         let max_allowed_chunks = self.common_config.max_allowed_chunks;
-        // Periodic heartbeat check task implementation
+
+        // Spawn an asynchronous task
         tokio::spawn(async move {
             let mut ticker = time::interval(Duration::from_secs(interval));
             loop {
                 ticker.tick().await;
+
                 let now = SystemTime::now()
                     .duration_since(UNIX_EPOCH)
                     .unwrap()
                     .as_secs();
+
                 // Check for failed servers
                 let mut failed_servers = Vec::new();
                 {
@@ -72,6 +75,7 @@ impl MasterService {
                 }
 
                 println!("[Cron Task] Failed servers detected: {:?}", failed_servers);
+
                 // Handle reassigning chunks for each failed server
                 for failed_server in failed_servers.clone() {
                     // Collect chunks from the failed server (chunks_to_reassign is a list of all removed servers)
@@ -210,6 +214,60 @@ impl MasterService {
                             "[Cron Task] Reassigning chunk '{}' to servers: {:?}",
                             chunk_info.chunk_id, selected_servers
                         );
+
+                        // Transfer chunk data
+                        for target_server in &selected_servers {
+                            // Get the first source server
+                            let source_server = match source_servers.get(0) {
+                                Some(server) => server.clone(),
+                                None => {
+                                    eprintln!("[Cron Task] No source servers available. Skipping target '{}'", target_server);
+                                    continue;
+                                }
+                            };
+
+                            let chunk_id = chunk_info.chunk_id.clone();
+
+                            // Attempt to connect to the source server
+                            let mut source_client =
+                                match ChunkClient::connect(format!("http://{}", source_server))
+                                    .await
+                                {
+                                    Ok(client) => client,
+                                    Err(e) => {
+                                        eprintln!(
+                                        "[Cron Task] Failed to connect to source server '{}': {}",
+                                        source_server, e
+                                    );
+                                        continue;
+                                    }
+                                };
+
+                            // Prepare the request to send the chunk
+                            let send_request = SendChunkRequest {
+                                chunk_name: chunk_id.clone(),
+                                target_address: target_server.clone(),
+                            };
+
+                            // Attempt to transfer the chunk
+                            match source_client
+                                .transfer_chunk(tonic::Request::new(send_request))
+                                .await
+                            {
+                                Ok(_) => {
+                                    println!(
+                                        "[Cron Task] Successfully transferred chunk '{}' from source server '{}' to target server '{}'.",
+                                        chunk_id, source_server, target_server
+                                    );
+                                }
+                                Err(e) => {
+                                    eprintln!(
+                                        "[Cron Task] Failed to transfer chunk '{}' from '{}' to '{}': {}",
+                                        chunk_id, source_server, target_server, e
+                                    );
+                                }
+                            }
+                        }
 
                         // Update chunk server metadata and chunk map
                         let new_chunk_info = ChunkInfo {

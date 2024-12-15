@@ -210,6 +210,41 @@ impl MasterService {
                             "[Cron Task] Reassigning chunk '{}' to servers: {:?}",
                             chunk_info.chunk_id, selected_servers
                         );
+
+                        // Update chunk server metadata and chunk map
+                        let new_chunk_info = ChunkInfo {
+                            chunk_id: chunk_info.chunk_id.clone(),
+                            server_addresses: selected_servers.clone(),
+                            version: chunk_info.version + 1,
+                        };
+
+                        for server in &selected_servers {
+                            let mut chunk_servers_lock = chunk_servers.write().await;
+                            if let Some(chunks) = chunk_servers_lock.get_mut(server) {
+                                // update chunkserver => list of chunks mapping
+                                chunks.push(new_chunk_info.clone());
+                            }
+                        }
+
+                        {
+                            // overwrite the chunk info
+                            let mut chunk_map_lock = chunk_map.write().await;
+                            chunk_map_lock.insert(new_chunk_info.chunk_id.clone(), new_chunk_info);
+                        }
+
+                        // Update file chunk selected servers in file_chunks mapping
+                        {
+                            let mut file_chunks_lock = file_chunks.write().await;
+                            for (_file_name, chunk_list) in file_chunks_lock.iter_mut() {
+                                if let Some(chunk) = chunk_list
+                                    .iter_mut()
+                                    .find(|c| c.chunk_id == chunk_info.chunk_id)
+                                {
+                                    chunk.server_addresses = selected_servers.clone();
+                                    chunk.version += 1;
+                                }
+                            }
+                        }
                     }
                 }
             }

@@ -32,6 +32,28 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     println!("MasterServer running at {}", addr);
 
+    // Determine the leader
+    let is_leader = match determine_leader(&addr, &common_config.master_addrs).await {
+        Some(leader_addr) if leader_addr == *addr => {
+            println!("This node is elected as the leader.");
+            true
+        }
+        Some(leader_addr) => {
+            println!("Another node is already the leader: {}", leader_addr);
+            false
+        }
+        None => {
+            println!("No leader found. This node will act as the leader.");
+            true
+        }
+    };
+
+    let master_service = MasterService::new(&addr, config.master, common_config);
+
+    if is_leader {
+        master_service.start_heartbeat_checker().await;
+    }
+
     Server::builder()
         .add_service(master::master_server::MasterServer::new(master_service))
         .serve(addr.parse::<SocketAddr>()?)

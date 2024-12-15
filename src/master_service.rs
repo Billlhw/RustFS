@@ -72,6 +72,146 @@ impl MasterService {
                 }
 
                 println!("[Cron Task] Failed servers detected: {:?}", failed_servers);
+                // Handle reassigning chunks for each failed server
+                for failed_server in failed_servers.clone() {
+                    // Collect chunks from the failed server (chunks_to_reassign is a list of all removed servers)
+                    let chunks_to_reassign = {
+                        let mut chunk_servers_lock = chunk_servers.write().await;
+                        chunk_servers_lock
+                            .remove(&failed_server)
+                            .unwrap_or_default()
+                    };
+
+                    println!(
+                        "[Cron Task] Reassigning chunks from failed server: {:?}",
+                        chunks_to_reassign
+                    );
+
+                    for chunk_info in chunks_to_reassign {
+                        let file_name = chunk_info
+                            .chunk_id
+                            .split("_chunk_")
+                            .next()
+                            .unwrap_or_default();
+
+                        // Get a list of chunkservers the current chunk is running on
+                        let source_servers: Vec<String> = {
+                            let file_chunks_lock = file_chunks.read().await;
+                            file_chunks_lock
+                                .get(file_name)
+                                .map(|chunks| {
+                                    chunks
+                                        .iter()
+                                        .filter_map(|chunk| {
+                                            if chunk.chunk_id == chunk_info.chunk_id {
+                                                Some(
+                                                    chunk
+                                                        .server_addresses
+                                                        .iter()
+                                                        .filter(|addr| addr != &&failed_server)
+                                                        .cloned()
+                                                        .collect::<Vec<_>>(),
+                                                )
+                                            } else {
+                                                None
+                                            }
+                                        })
+                                        .flatten()
+                                        .collect()
+                                })
+                                .unwrap_or_default()
+                        };
+
+                        if source_servers.is_empty() {
+                            eprintln!(
+                                "[Cron Task] No healthy source servers found for chunk '{}'. Skipping reassignment.",
+                                chunk_info.chunk_id
+                            );
+                            continue;
+                        }
+
+                        println!(
+                            "[Cron Task] Chunk {:?} source servers: {:?}",
+                            chunk_info.chunk_id, source_servers
+                        );
+
+                        let existing_replicas = {
+                            let file_chunks_lock = file_chunks.read().await;
+                            file_chunks_lock
+                                .get(file_name)
+                                .map(|chunks| {
+                                    chunks
+                                        .iter()
+                                        .filter(|chunk| {
+                                            chunk
+                                                .server_addresses
+                                                .iter()
+                                                .any(|addr| addr != &failed_server)
+                                        })
+                                        .count()
+                                })
+                                .unwrap_or(0)
+                        };
+                        let needed_replicas = common_config.replication_factor - existing_replicas;
+                        if needed_replicas == 0 {
+                            println!(
+                                "[Cron Task] Chunk '{}' already has enough replicas on healthy servers.",
+                                chunk_info.chunk_id
+                            );
+                            continue;
+                        }
+
+                        // Collect available chunk servers for reassignment
+                        // (available means load is less than max_allowed_chunks and does not store the same chunk)
+                        let available_servers: HashMap<String, Vec<ChunkInfo>> = {
+                            let chunk_servers_lock = chunk_servers.read().await;
+                            chunk_servers_lock
+                                .iter()
+                                .filter(|(_addr, chunks)| {
+                                    chunks.len() < max_allowed_chunks
+                                        && !chunks.iter().any(|c| c.chunk_id == chunk_info.chunk_id)
+                                })
+                                .map(|(addr, chunks)| (addr.clone(), chunks.clone()))
+                                .collect()
+                        };
+                        println!(
+                            "[Cron Task] Chunk {:?} has available servers: {:?}",
+                            chunk_info.chunk_id, available_servers
+                        );
+
+                        let mut server_queue: BinaryHeap<Reverse<(usize, String)>> =
+                            available_servers
+                                .iter()
+                                .map(|(addr, chunks)| Reverse((chunks.len(), addr.clone())))
+                                .collect();
+
+                        let mut selected_servers = Vec::new();
+                        while selected_servers.len() < needed_replicas {
+                            if let Some(Reverse((load, addr))) = server_queue.pop() {
+                                if !selected_servers.contains(&addr) {
+                                    selected_servers.push(addr.clone());
+                                    // Add load to the selected server
+                                    server_queue.push(Reverse((load + 1, addr)));
+                                }
+                            } else {
+                                break; // Not enough available servers
+                            }
+                        }
+
+                        if selected_servers.is_empty() {
+                            eprintln!(
+                                "[Cron Task] No selected servers to reassign chunk '{}'",
+                                chunk_info.chunk_id
+                            );
+                            continue;
+                        }
+
+                        println!(
+                            "[Cron Task] Reassigning chunk '{}' to servers: {:?}",
+                            chunk_info.chunk_id, selected_servers
+                        );
+                    }
+                }
             }
         });
     }

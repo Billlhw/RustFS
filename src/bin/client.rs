@@ -9,7 +9,8 @@ use tonic::Request;
 
 use rustfs::config::{load_config, ClientConfig, CommonConfig};
 use rustfs::proto::master::{
-    master_client::MasterClient, AssignRequest, ChunkInfo, FileChunkMappingRequest,
+    master_client::MasterClient, AssignRequest, ChunkInfo, DeleteFileRequest,
+    FileChunkMappingRequest,
 };
 use rustfs::util::connect_to_master;
 
@@ -18,7 +19,7 @@ pub mod chunk {
 }
 
 pub struct Client {
-    config: ClientConfig,
+    config: ClientConfig, //TODO: use it for logging
     common_config: CommonConfig,
     master_client: MasterClient<tonic::transport::Channel>, //TODO: need to retry to connect to master when master fails
 }
@@ -354,6 +355,32 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
             let file_name = args[2].as_str();
+
+            // Create DeleteFileRequest
+            let request = DeleteFileRequest {
+                file_name: file_name.to_string(),
+            };
+
+            // Call delete_file RPC
+            match client.master_client.delete_file(request).await {
+                Ok(response) => {
+                    if response.get_ref().success {
+                        println!("File '{}' deleted successfully.", file_name);
+                    } else {
+                        eprintln!(
+                            "Failed to delete file '{}': {}",
+                            file_name,
+                            response.get_ref().message
+                        );
+                        return Ok(()); // Stop further execution if the deletion failed
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Error during delete: {}", e);
+                    return Ok(()); // Stop further execution if the RPC call failed
+                }
+            }
+
             let primary_server_addresses = client
                 .get_primary_server_addresses(file_name)
                 .await

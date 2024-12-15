@@ -6,9 +6,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 use tonic::{Request, Response, Status};
 
 use crate::proto::master::{
-    AssignRequest, AssignResponse, ChunkInfo, FileChunkMapping, FileChunkMappingRequest,
-    HeartbeatRequest, HeartbeatResponse, PingMasterRequest, PingMasterResponse, RegisterRequest,
-    RegisterResponse, UpdateMetadataRequest, UpdateMetadataResponse,
+    AssignRequest, AssignResponse, ChunkInfo, DeleteFileRequest, DeleteFileResponse,
+    FileChunkMapping, FileChunkMappingRequest, HeartbeatRequest, HeartbeatResponse,
+    PingMasterRequest, PingMasterResponse, RegisterRequest, RegisterResponse,
+    UpdateMetadataRequest, UpdateMetadataResponse,
 };
 
 // Import `MasterService` from `master_service.rs`
@@ -268,6 +269,62 @@ impl Master for Arc<MasterService> {
             file_name: updated_file_name,
             chunk_info_list: assigned_chunks,
         }))
+    }
+
+    /// Deletes all chunks and metadata associated with a file.
+    ///
+    /// - Removes the file and its chunks from `file_chunks`.
+    /// - Removes references to the file's chunks from `chunk_servers`.
+    /// - Deletes the chunk metadata from `chunk_map`.
+    /// - Sends metadata updates to shadow masters.
+    async fn delete_file(
+        &self,
+        request: Request<DeleteFileRequest>,
+    ) -> Result<Response<DeleteFileResponse>, Status> {
+        let file_name = request.into_inner().file_name;
+
+        let mut file_chunks = self.file_chunks.write().await;
+        let mut chunk_servers = self.chunk_servers.write().await;
+        let mut chunk_map = self.chunk_map.write().await;
+
+        // Check if the file exists
+        if let Some(chunks) = file_chunks.remove(&file_name) {
+            println!("Deleting metadata for file: {}", file_name);
+
+            // Remove the chunks from chunk_servers
+            for chunk_info in &chunks {
+                for server in &chunk_info.server_addresses {
+                    if let Some(server_chunks) = chunk_servers.get_mut(server) {
+                        server_chunks.retain(|chunk| chunk.chunk_id != chunk_info.chunk_id);
+                        if server_chunks.is_empty() {
+                            chunk_servers.remove(server); // Optionally clean up empty entries
+                        }
+                    }
+                }
+
+                // Remove the chunk from chunk_map
+                chunk_map.remove(&chunk_info.chunk_id);
+            }
+
+            println!("All metadata for file '{}' has been deleted.", file_name);
+
+            // Send updated metadata to shadow masters
+            self.propagate_metadata_updates().await;
+
+            // Return success response
+            Ok(Response::new(DeleteFileResponse {
+                success: true,
+                message: format!("File '{}' deleted successfully.", file_name),
+            }))
+        } else {
+            println!("File '{}' not found. No metadata deleted.", file_name);
+
+            // Return error response
+            Ok(Response::new(DeleteFileResponse {
+                success: false,
+                message: format!("File '{}' not found.", file_name),
+            }))
+        }
     }
 
     async fn get_file_chunks(

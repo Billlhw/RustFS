@@ -38,9 +38,11 @@ impl MasterService {
             common_config,
         }
     }
+
     pub fn is_leader(&self) -> bool {
         self.addr == self.config.master_address
     }
+
     /// Starts a periodic task to check for failed chunk servers and reassign their chunks.
     pub async fn start_heartbeat_checker(&self) {
         let interval = self.config.cron_interval; // Interval for the periodic task

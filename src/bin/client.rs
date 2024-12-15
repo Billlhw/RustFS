@@ -1,5 +1,6 @@
 use chunk::chunk_client::ChunkClient;
 use chunk::{AppendRequest, DeleteRequest, FileChunk, FileInfo, ReadRequest, UploadRequest};
+use rand::seq::SliceRandom;
 use std::env;
 use tokio::fs::File;
 use tokio::io::AsyncReadExt;
@@ -37,6 +38,46 @@ impl Client {
         })
     }
 
+    /// Randomly select a server address for each chunk for read operations
+    pub async fn get_randomized_server_addresses(
+        &mut self,
+        file_name: &str,
+    ) -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        let response = self
+            .master_client
+            .get_file_chunks(Request::new(FileChunkMappingRequest {
+                file_name: file_name.to_string(),
+            }))
+            .await?;
+
+        let chunk_info_list = response.into_inner().chunks;
+
+        let mut rng = rand::thread_rng();
+        let mut randomized_addresses = Vec::new();
+
+        // Randomly choose a server for server_addresses of each chunk
+        for chunk_info in chunk_info_list.iter() {
+            if let Some(random_server) = chunk_info.server_addresses.choose(&mut rng) {
+                randomized_addresses.push(random_server.clone());
+            } else {
+                return Err(Box::new(std::io::Error::new(
+                    std::io::ErrorKind::NotFound,
+                    "No available servers for one or more chunks",
+                )));
+            }
+        }
+
+        if randomized_addresses.is_empty() {
+            return Err(Box::new(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "No available chunk servers for the file",
+            )));
+        }
+
+        Ok(randomized_addresses)
+    }
+
+    /// Randomly select a server address for each chunk for write operations
     pub async fn get_primary_server_addresses(
         &mut self,
         file_name: &str,
@@ -64,7 +105,6 @@ impl Client {
         Ok(server_addresses)
     }
 
-    //TODO: change to separate file by chunk size
     pub async fn upload_file(
         &self,
         chunk_info_list: Vec<ChunkInfo>,
@@ -158,12 +198,12 @@ impl Client {
     /// Read each chunk and then concatenate
     pub async fn read_file(
         &self,
-        primary_server_addresses: Vec<String>,
+        randomized_server_addresses: Vec<String>,
         file_name: &str,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let mut file_content = String::new();
 
-        for (chunk_id, server_address) in primary_server_addresses.iter().enumerate() {
+        for (chunk_id, server_address) in randomized_server_addresses.iter().enumerate() {
             // Connect to the chunk server
             let mut chunk_client =
                 ChunkClient::connect(format!("http://{}", server_address)).await?;
@@ -293,15 +333,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 return Ok(());
             }
             let file_name = args[2].as_str();
-            let primary_server_addresses = client
-                .get_primary_server_addresses(file_name)
+            let randomized_server_addresses = client
+                .get_randomized_server_addresses(file_name)
                 .await
                 .map_err(|e| {
-                    eprintln!("Error retrieving server addresses: {}", e);
+                    eprintln!("Error retrieving random server addresses: {}", e);
                     e
                 })?;
 
-            if let Err(e) = client.read_file(primary_server_addresses, file_name).await {
+            if let Err(e) = client
+                .read_file(randomized_server_addresses, file_name)
+                .await
+            {
                 eprintln!("Error during read: {}", e);
             }
         }

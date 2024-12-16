@@ -21,7 +21,7 @@ The objective of our project is to develop a scalable, high-available, and high-
 
 ## 3. Key Features
 In this section, we introduce the key features of the system. Figure 1 presents a component diagram and an illustration of the workflow for a read operation.
-![RustFS_Architecture](https://github.com/user-attachments/assets/89f03f24-207e-4d52-ae97-272d77a791a3)
+![RustFS_Architecture_v3](https://github.com/user-attachments/assets/d18df6a1-7d04-4fa6-a25c-14786d0191fd)
 *Figure 1: Component Diagram*
 
 We adopt a centralized design in which the master node holds and manages metadata. The master node is responsible for assigning chunks to chunkservers, monitoring the liveliness of each chunkserver, and rebalancing load across chunkservers to ensure the availability of file chunks and the read performance of the system. Additionally, this design improves the maintainability of the system and simplifies the implementation of authentication.

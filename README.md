@@ -20,8 +20,9 @@ This project provided us with an opportunity to explore distributed systems conc
 The objective of our project is to develop a scalable, high-available, and high-performance file storage system. Our system aims to support growing data and user demands by allowing on-demand addition of storage nodes without disrupting existing operations. To ensure high availability and durability, the system is resilient to component failures and supports automatic detection and recovery of node failures. Efficiency is further optimized through client-side metadata caching, and planning of dataflow during mutations. Additionally, we will incorporate advanced functionality, including access control, end-to-end encryption, and file tailing.
 
 
-
 ## 3. Features
+System Architecture
+![Component_Diagram (1)](https://github.com/user-attachments/assets/b6c7e9d8-0ce8-4420-b78f-84ddd63e108c)
 
 ### 3.1 Core Features
 - **Centralized Metadata Management**: A master node maintains and replicates metadata, ensuring consistency and durability across the system.
@@ -231,15 +232,17 @@ File successfully deleted.
 ## 7. Lessons Learned and Concluding Remarks
 
 ### Lessons Learned
-Throughout this project, we gained invaluable insights into the complexities of distributed systems, particularly in ensuring fault tolerance and consistency across distributed environments. Working with Rust provided a deeper understanding of memory safety and concurrency, while also introducing unique challenges. For instance, deadlocks are still possible in Rust, and while they are relatively easier to trace, avoiding "hold and wait" conditions requires careful attention during programming.
+Throughout this project, we gained invaluable insights into the complexities of distributed systems, particularly in ensuring fault tolerance and consistency across distributed environments. Working with Rust provided a deeper understanding of memory safety and concurrency, and familiarized us with the modern language's distinct design philosophy.
 
-One significant takeaway was the importance of designing for scalability and modularity. By planning a modular architecture, we were able to add features without disrupting the core system. However, we realized that refactoring is essential for maintaining clarity and usability, especially in middle- to large-sized projects. For example, implementing the master node logic resulted in files exceeding 1,000 lines of code, which became challenging to maintain. Breaking down such large functionalities into manageable modules in Rust requires careful planning from the start.
+One significant takeaway is that the development lifecycle differed significantly from our experience with other languages like C++. Fixing syntax and ownership-related issues consumed far more time than debugging runtime errors—a stark contrast to languages that require manual memory management. This shift highlighted the need for a development plan that allocates more time to the coding phase and anticipates a steeper learning curve. That said, the trade-off is fewer runtime errors and more predictable behavior, which we found highly valuable.
 
-The development lifecycle in Rust also differed significantly from our experience with other languages. Fixing syntax and ownership-related issues consumed far more time than debugging runtime errors, a stark contrast to languages like C++. This shift highlighted the need for a development plan that allocates more time to the coding phase and anticipates a steeper learning curve. That said, the trade-off is fewer runtime errors and more predictable behavior, which we found highly valuable.
+Another observation is that, although Rust can eliminate the majority of concurrency problems, deadlock issues can still persist. However, these are among the easiest concurrency issues to debug. We conclude that avoiding "hold and wait" conditions still requires careful attention during programming.
 
-Another critical lesson was the importance of thorough design planning prior to implementation. For example, designing the master coordination algorithm—including leader selection and keeping shadow masters up-to-date after a master node failure—required careful consideration. A clear and well-documented plan not only helped us avoid pitfalls but also significantly expedited development.
+Next, we appreciate the importance of organizing code for modularity and extensibility. Our final deliverable adopted a modular architecture, enabling us to add features with minimal impact on existing functionality. However, this modular design came at the cost of refactoring for clarity and maintainability, which became necessary when we noticed that the code for the master node and chunk server readily exceeded 1,000 lines before implementing some of the core features. Our takeaway is that breaking down such large functionalities into manageable modules in Rust requires careful planning from the start.
 
-Looking ahead, we believe this project lays a strong foundation for further exploration of distributed file systems in Rust. The system could potentially serve as a base for more advanced research or commercial applications. Future work might include integrating machine learning for predictive load balancing or extending the system to support object storage for cloud environments.
+Another critical lesson was the importance of thoroughly designing features prior to implementation. For example, designing the master coordination algorithm, including leader selection and the mechanism to keep shadow masters up to date, required careful consideration, as we aimed for a simplistic design that does not rely on external servers. A clear and well-documented plan significantly expedited the development.
+
+Looking ahead, we believe this project lays a strong foundation for further exploration of distributed file systems in Rust. The system could potentially serve as a base for more advanced research or commercial applications. Future work might include implementing mechanisms to ensure strong consistency, integrating machine learning for predictive load balancing, and extending the system to support object storage for cloud environments.
 
 ### Concluding Remarks
 This project successfully combines core file storage functionalities with advanced features like encryption, file tailing, and fault tolerance. The system is scalable, secure, and resilient to failures. Future work could include optimizing the metadata handling for large-scale deployments and adding support for cross-rack replication.

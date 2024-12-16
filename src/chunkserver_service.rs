@@ -2,6 +2,7 @@ use std::collections::HashSet;
 use std::sync::Arc;
 use tokio::sync::Mutex;
 use tokio::time::Duration;
+use tracing::{error, info};
 
 use crate::config::{ChunkServerConfig, CommonConfig};
 use crate::proto::master::{master_client::MasterClient, HeartbeatRequest};
@@ -70,23 +71,23 @@ impl ChunkService {
 
                 match client.heartbeat(tonic::Request::new(request)).await {
                     Ok(response) => {
-                        println!(
+                        info!(
                             "Heartbeat acknowledged by Master: {}",
                             response.into_inner().message
                         );
                     }
                     Err(e) => {
-                        eprintln!("Failed to send heartbeat: {}", e);
+                        error!("Failed to send heartbeat: {}", e);
 
                         // Attempt to reconnect to the master
                         match connect_to_master(&master_addrs).await {
                             Ok(new_client) => {
-                                println!("Reconnected to Master");
+                                info!("Reconnected to Master");
                                 client = new_client;
                                 first_time_reconnected = true; // Avoid waiting for heartbeat_interval before retrying
                             }
                             Err(e) => {
-                                eprintln!("Failed to reconnect to Master: {}", e);
+                                error!("Failed to reconnect to Master: {}", e);
                                 break; // Exit the loop on repeated failures
                             }
                         }

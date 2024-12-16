@@ -1,4 +1,5 @@
 use crate::proto::master::master_client::MasterClient;
+use tracing::{error, info};
 
 /// Connect to the master given the list of servers
 pub async fn connect_to_master(
@@ -7,11 +8,11 @@ pub async fn connect_to_master(
     for addr in master_addrs {
         match MasterClient::connect(format!("http://{}", addr)).await {
             Ok(client) => {
-                println!("Connected to master at: {}", addr);
+                info!("Connected to master at: {}", addr);
                 return Ok(client); // Return the MasterClient directly
             }
             Err(e) => {
-                println!("Failed to connect to master at {}: {}", addr, e);
+                error!("Failed to connect to master at {}: {}", addr, e);
             }
         }
     }

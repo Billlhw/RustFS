@@ -2,6 +2,7 @@ use std::fs;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tonic::{Request, Response, Status};
+use tracing::{debug, error, info, warn};
 
 use crate::proto::chunk;
 use crate::proto::chunk::chunk_client::ChunkClient;
@@ -25,7 +26,7 @@ impl Chunk for ChunkService {
         let chunk_name = req.chunk_name;
         let target_address = req.target_address;
 
-        println!(
+        info!(
             "[transfer_chunk] Received request to transfer chunk '{}' to '{}'",
             chunk_name, target_address
         );
@@ -40,25 +41,25 @@ impl Chunk for ChunkService {
             if let Ok(id) = id_part.parse::<u64>() {
                 chunk_id_part = id;
             } else {
-                eprintln!(
+                error!(
                     "[transfer_chunk] Failed to parse chunk_id from '{}'",
                     id_part
                 );
             }
         } else {
-            eprintln!(
+            error!(
                 "[transfer_chunk] Invalid chunk_name format: '{}'",
                 chunk_name
             );
         }
-        println!("[transfer_chunk] File name: {}", file_name_part);
-        println!("[transfer_chunk] Chunk ID: {}", chunk_id_part);
+        debug!("[transfer_chunk] File name: {}", file_name_part);
+        debug!("[transfer_chunk] Chunk ID: {}", chunk_id_part);
 
         let file_path = format!(
             "{}/{}/{}",
             self.addr_sanitized, self.config.data_path, chunk_name
         );
-        println!(
+        info!(
             "[transfer_chunk] Reading chunk '{}' from file: {}",
             chunk_name, file_path
         );
@@ -113,7 +114,7 @@ impl Chunk for ChunkService {
 
         // Handle response from target
         let response = stream.get_mut();
-        println!(
+        info!(
             "[transfer_chunk] File '{}' chunk '{}' successfully transferred from '{}' to '{}'. Response: {}",
             file_name_part, chunk_id_part, self.addr, target_address, response.message
         );
@@ -130,7 +131,7 @@ impl Chunk for ChunkService {
         &self,
         request: Request<tonic::Streaming<UploadRequest>>,
     ) -> Result<Response<UploadResponse>, Status> {
-        println!("Upload request received.");
+        info!("Upload request received.");
 
         let mut stream = request.into_inner();
         let mut file_name = String::new();
@@ -140,13 +141,13 @@ impl Chunk for ChunkService {
             match req.request {
                 Some(chunk::upload_request::Request::Info(info)) => {
                     file_name = info.file_name.clone();
-                    println!("Starting upload for file: {}", file_name);
+                    info!("Starting upload for file: {}", file_name);
                     let chunk_id = info.chunk_id;
                     let file_path = format!(
                         "{}/{}/{}_chunk_{}",
                         self.addr_sanitized, self.config.data_path, file_name, chunk_id
                     );
-                    println!("Saving file to: {}", file_path);
+                    info!("Saving file to: {}", file_path);
 
                     file = Some(tokio::fs::File::create(&file_path).await.map_err(|e| {
                         Status::internal(format!("Failed to create file at '{}': {}", file_path, e))
@@ -169,7 +170,7 @@ impl Chunk for ChunkService {
                 None => return Err(Status::invalid_argument("Empty request")),
             }
         }
-        // println!("File '{}' uploaded successfully.", file_name);
+        debug!("File '{}' uploaded successfully.", file_name);
         Ok(Response::new(UploadResponse {
             message: format!("File '{}' uploaded successfully.", file_name),
         }))
@@ -184,7 +185,7 @@ impl Chunk for ChunkService {
             "{}/{}/{}_chunk_{}",
             self.addr_sanitized, self.config.data_path, file_name, chunk_id
         );
-        println!("Fetching file: {}", file_path);
+        info!("Fetching file: {}", file_path);
 
         // Read up to the chunk size from the file
         let mut buffer = vec![0; self.common_config.chunk_size as usize];
@@ -202,7 +203,7 @@ impl Chunk for ChunkService {
                 file_path, e
             ))
         })?;
-        println!("Content is: {}", content);
+        debug!("Content is: {}", content);
         Ok(Response::new(ReadResponse { content }))
     }
 
@@ -219,7 +220,7 @@ impl Chunk for ChunkService {
             "{}/{}/{}_chunk_{}",
             self.addr_sanitized, self.config.data_path, file_name, chunk_id
         );
-        println!("Deleting chunk file: {}", file_path);
+        info!("Deleting chunk file: {}", file_path);
 
         fs::remove_file(&file_path).map_err(|e| {
             Status::internal(format!("Failed to delete file '{}': {}", file_path, e))
@@ -229,9 +230,9 @@ impl Chunk for ChunkService {
         let chunk_to_remove = format!("{}_chunk_{}", file_name, chunk_id);
         let mut server_chunks_guard = self.server_chunks.lock().await;
         if server_chunks_guard.remove(&chunk_to_remove) {
-            println!("Removed chunk: {}", chunk_to_remove);
+            info!("Removed chunk: {}", chunk_to_remove);
         } else {
-            println!("chunk not found: {}", chunk_to_remove);
+            warn!("chunk not found: {}", chunk_to_remove);
         }
 
         Ok(Response::new(DeleteResponse {
@@ -256,7 +257,7 @@ impl Chunk for ChunkService {
             "{}/{}/{}_chunk_{}",
             self.addr_sanitized, self.config.data_path, file_name, chunk_id
         );
-        println!("Appending to file: {}", file_path);
+        info!("Appending to file: {}", file_path);
 
         let mut file = File::open(&file_path)
             .await

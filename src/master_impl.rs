@@ -4,6 +4,7 @@ use std::collections::{BinaryHeap, HashMap};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tonic::{Request, Response, Status};
+use tracing::{debug, error, info, warn};
 
 use crate::proto::master::{
     AssignRequest, AssignResponse, ChunkInfo, DeleteFileRequest, DeleteFileResponse,
@@ -26,7 +27,7 @@ impl Master for Arc<MasterService> {
 
         let mut chunk_servers = self.chunk_servers.write().await;
         chunk_servers.insert(chunkserver_address.clone(), vec![]);
-        println!(
+        info!(
             "Registering chunk server: {}, Current chunk servers: {:?}",
             chunkserver_address, *chunk_servers
         );
@@ -71,13 +72,13 @@ impl Master for Arc<MasterService> {
             let chunk_servers = self.chunk_servers.read().await;
             let chunk_map = self.chunk_map.read().await;
 
-            println!("[update_metadata] Updated Metadata:");
-            println!("file_chunks: {:#?}", *file_chunks);
-            println!("chunk_servers: {:#?}", *chunk_servers);
-            println!("chunk_map: {:#?}", *chunk_map);
+            debug!("[update_metadata] Updated Metadata");
+            debug!("file_chunks: {:#?}", *file_chunks);
+            debug!("chunk_servers: {:#?}", *chunk_servers);
+            debug!("chunk_map: {:#?}", *chunk_map);
         }
 
-        println!("Updated metadata from leader");
+        info!("Updated metadata from leader");
         Ok(Response::new(UpdateMetadataResponse {
             message: "Metadata update applied successfully".to_string(),
         }))
@@ -92,7 +93,7 @@ impl Master for Arc<MasterService> {
             chunks,
         } = request.into_inner();
 
-        println!(
+        info!(
             "[Heartbeat] received HeartbeatRequest from: {}",
             chunkserver_address
         );
@@ -130,7 +131,7 @@ impl Master for Arc<MasterService> {
                         collected_chunks.push(chunk_info);
                     } else {
                         // If it doesn't exist, print an error and skip the chunk
-                        eprintln!(
+                        error!(
                             "[Heartbeat] Error: Chunk ID '{}' not found in chunk_map",
                             chunk_id
                         );
@@ -176,7 +177,7 @@ impl Master for Arc<MasterService> {
             suffix += 1;
         }
 
-        println!(
+        info!(
             "Assigning chunks for file: {} (original name: {}, size: {} bytes)",
             updated_file_name, file_name, file_size
         );
@@ -224,7 +225,7 @@ impl Master for Arc<MasterService> {
                     server_queue.push(Reverse((load + 1, addr)));
                 }
             }
-            println!("selected servers: {:?}", selected_servers);
+            debug!("selected servers: {:?}", selected_servers);
 
             // Generate a unique chunk ID
             let chunk_id = format!("{}_chunk_{}", updated_file_name, chunk_index);
@@ -250,13 +251,13 @@ impl Master for Arc<MasterService> {
                 }
             }
             chunk_map.insert(chunk_id.clone(), chunk_info.clone());
-            println!("[assign_chunks] updated chunk_servers: {:?}", chunk_servers);
+            info!("[assign_chunks] updated chunk_servers: {:?}", chunk_servers);
 
             // Track the assigned chunk
             assigned_chunks.push(chunk_info);
         }
 
-        println!(
+        info!(
             "File '{}' has been divided into {} chunk(s) and assigned to servers.",
             file_name, num_chunks
         );
@@ -294,7 +295,7 @@ impl Master for Arc<MasterService> {
 
         // Check if the file exists
         if let Some(chunks) = file_chunks.remove(&file_name) {
-            println!("Deleting metadata for file: {}", file_name);
+            info!("Deleting metadata for file: {}", file_name);
 
             // Remove the chunks from chunk_servers
             for chunk_info in &chunks {
@@ -311,7 +312,7 @@ impl Master for Arc<MasterService> {
                 chunk_map.remove(&chunk_info.chunk_id);
             }
 
-            println!("All metadata for file '{}' has been deleted.", file_name);
+            info!("All metadata for file '{}' has been deleted.", file_name);
 
             // Release write locks
             drop(file_chunks);
@@ -330,7 +331,7 @@ impl Master for Arc<MasterService> {
                 ),
             }))
         } else {
-            println!("File '{}' not found. No metadata deleted.", file_name);
+            warn!("File '{}' not found. No metadata deleted.", file_name);
 
             // Return error response
             Ok(Response::new(DeleteFileResponse {
@@ -345,10 +346,10 @@ impl Master for Arc<MasterService> {
         request: Request<FileChunkMappingRequest>,
     ) -> Result<Response<FileChunkMapping>, Status> {
         let file_name = request.into_inner().file_name;
-        println!("Fetching chunks for file: {}", file_name);
+        debug!("Fetching chunks for file: {}", file_name);
 
         let file_chunks = self.file_chunks.read().await;
-        println!("[get_file_chunks] Current file_chunks: {:?}", file_chunks);
+        info!("[get_file_chunks] Current file_chunks: {:?}", file_chunks);
         let chunks = file_chunks
             .get(&file_name)
             .cloned()
@@ -363,13 +364,13 @@ impl Master for Arc<MasterService> {
         request: Request<PingMasterRequest>,
     ) -> Result<Response<PingMasterResponse>, Status> {
         let sender_address = request.into_inner().sender_address;
-        println!("[ping_master] Received ping from: {}", sender_address);
+        info!("[ping_master] Received ping from: {}", sender_address);
 
         if self.is_leader().await {
             let mut shadow_masters = self.shadow_masters.write().await;
             // Insert sender_address and check if it was newly added
             if shadow_masters.insert(sender_address.clone()) {
-                println!(
+                info!(
                     "[ping_master] Registered '{}' as a shadow master",
                     sender_address
                 );
@@ -403,17 +404,17 @@ pub async fn determine_leader(self_addr: &str, master_addrs: &[String]) -> Optio
                     Ok(response) => {
                         let response = response.into_inner();
                         if response.is_leader {
-                            println!("Found leader at {}", addr);
+                            info!("Found leader at {}", addr);
                             return Some(addr.clone());
                         }
                     }
                     Err(e) => {
-                        eprintln!("Failed to contact master at {}: {}", addr, e);
+                        error!("Failed to contact master at {}: {}", addr, e);
                     }
                 }
             }
             Err(e) => {
-                eprintln!("Failed to connect to {}: {}", addr, e);
+                error!("Failed to connect to {}: {}", addr, e);
             }
         }
     }

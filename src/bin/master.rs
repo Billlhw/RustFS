@@ -7,9 +7,30 @@ use crate::master::PingMasterRequest;
 use rustfs::config::load_config;
 use rustfs::master_service::MasterService;
 use rustfs::proto::master;
+use tracing::{error, info};
+use tracing_appender::rolling;
+use tracing_subscriber::{fmt, layer::SubscriberExt, EnvFilter, Registry};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // load logging config
+    let config = load_config("config.toml")?;
+    let log_path = config.master.log_path.clone();
+    let log_level = config.common.log_level.clone();
+
+    // Set up logger
+    let file_appender = rolling::daily(log_path, "master.log");
+    let stdout_layer = fmt::layer().with_writer(std::io::stdout).with_ansi(true);
+    let file_layer = fmt::layer().with_writer(file_appender).with_ansi(false); // Disable ANSI escape codes for file logs
+    let env_filter = EnvFilter::from_default_env().add_directive(log_level.parse().unwrap());
+    let subscriber = Registry::default()
+        .with(env_filter)
+        .with(stdout_layer)
+        .with(file_layer);
+
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("Failed to set global default subscriber");
+
     // Parse command line arguments
     let matches = Command::new("MasterServer")
         .version("1.0")
@@ -31,7 +52,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let config = load_config("config.toml")?;
     let common_config = config.common;
 
-    println!("MasterServer running at {}", addr);
+    info!("MasterServer running at {}", addr);
 
     // Determine the leader
     let mut leader_found = false;
@@ -52,18 +73,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     Ok(response) => {
                         let response = response.into_inner();
                         if response.is_leader {
-                            println!("Leader found at: {}", master_addr);
+                            info!("Leader found at: {}", master_addr);
                             actural_master_addr = master_addr;
                             leader_found = true;
                             break;
                         }
                     }
                     Err(e) => {
-                        eprintln!("Failed to contact master at {}: {}", actural_master_addr, e)
+                        error!("Failed to contact master at {}: {}", actural_master_addr, e)
                     }
                 }
             }
-            Err(e) => eprintln!("Failed to connect to {}: {}", master_addr, e),
+            Err(e) => error!("Failed to connect to {}: {}", master_addr, e),
         }
     }
 
@@ -77,10 +98,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         actural_master_addr,
     ));
     if is_leader {
-        println!("No leader found. This node will act as the leader.");
+        info!("No leader found. This node will act as the leader.");
         Arc::clone(&master_service).start_heartbeat_checker().await;
     } else {
-        println!("This node is not the leader.");
+        info!("This node is not the leader.");
         Arc::clone(&master_service)
             .start_shadow_master_ping_task()
             .await;

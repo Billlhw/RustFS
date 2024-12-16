@@ -6,12 +6,33 @@ use rustfs::config::{load_config, ChunkServerConfig, CommonConfig};
 use rustfs::proto::chunk::chunk_server::ChunkServer;
 use rustfs::proto::master::RegisterRequest;
 use rustfs::util::connect_to_master;
+use tracing::{debug, error, info};
+use tracing_appender::rolling;
+use tracing_subscriber::{fmt, layer::SubscriberExt, EnvFilter, Registry};
 
 // Using modules chunkserver_impl and chunkserver_service from `src/`
 use rustfs::chunkserver_service::ChunkService;
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // load logging config
+    let config = load_config("config.toml")?;
+    let log_path = config.chunkserver.log_path.clone();
+    let log_level = config.common.log_level.clone();
+
+    // Set up logger
+    let file_appender = rolling::daily(log_path, "chunkserver.log");
+    let stdout_layer = fmt::layer().with_writer(std::io::stdout).with_ansi(true);
+    let file_layer = fmt::layer().with_writer(file_appender).with_ansi(false); // Disable ANSI escape codes for file logs
+    let env_filter = EnvFilter::from_default_env().add_directive(log_level.parse().unwrap());
+    let subscriber = Registry::default()
+        .with(env_filter)
+        .with(stdout_layer)
+        .with(file_layer);
+
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("Failed to set global default subscriber");
+
     // Parse command line arguments
     let matches = Command::new("ChunkServer")
         .version("1.0")
@@ -31,7 +52,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let addr: SocketAddr = address.parse().expect("Invalid address format");
 
     // Load configuration
-    let config = load_config("config.toml")?;
     let chunkserver_config: ChunkServerConfig = config.chunkserver;
     let common_config: CommonConfig = config.common;
 
@@ -40,14 +60,14 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let full_data_path = format!("{}/{}", sanitized_address, chunkserver_config.data_path);
     if !std::path::Path::new(&full_data_path).exists() {
         std::fs::create_dir_all(&full_data_path).map_err(|e| {
-            eprintln!(
+            error!(
                 "Failed to create data directory '{}': {}",
                 full_data_path, e
             );
             e
         })?;
     }
-    println!("Data directory verified: {}", full_data_path);
+    debug!("Data directory verified: {}", full_data_path);
 
     // Connect to the master, if no master is available, exit the program
     let mut master_client = connect_to_master(&common_config.master_addrs).await?;
@@ -58,10 +78,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             address: addr.to_string(),
         })
         .await?;
-    println!("Registered with Master: {}", response.into_inner().message);
+    info!("Registered with Master: {}", response.into_inner().message);
 
     // Start chunkserver service
-    println!("ChunkServer running at {}", addr);
+    info!("ChunkServer running at {}", addr);
     let service = ChunkService::new(
         &addr.to_string(),
         &sanitized_address,
@@ -74,7 +94,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let heartbeat_service = service.clone();
     tokio::spawn(async move {
         if let Err(e) = heartbeat_service.send_heartbeat(heartbeat_client).await {
-            eprintln!("Heartbeat task failed: {}", e);
+            error!("Heartbeat task failed: {}", e);
         }
     });
 

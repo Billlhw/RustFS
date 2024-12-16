@@ -6,8 +6,11 @@ use tokio::fs::File;
 use tokio::io::AsyncReadExt;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::Request;
+use tracing::{debug, error, info};
+use tracing_appender::rolling;
+use tracing_subscriber::{fmt, layer::SubscriberExt, EnvFilter, Registry};
 
-use rustfs::config::{load_config, ClientConfig, CommonConfig};
+use rustfs::config::{load_config, CommonConfig};
 use rustfs::proto::master::{
     master_client::MasterClient, AssignRequest, ChunkInfo, DeleteFileRequest,
     FileChunkMappingRequest,
@@ -19,21 +22,18 @@ pub mod chunk {
 }
 
 pub struct Client {
-    config: ClientConfig, //TODO: use it for logging
     common_config: CommonConfig,
-    master_client: MasterClient<tonic::transport::Channel>, //TODO: need to retry to connect to master when master fails
+    master_client: MasterClient<tonic::transport::Channel>,
 }
 
 impl Client {
     pub async fn new(config_path: &str) -> Result<Self, Box<dyn std::error::Error>> {
         let config = load_config(config_path)?;
-        let client_config: ClientConfig = config.client;
         let common_config: CommonConfig = config.common;
 
         let master_client = connect_to_master(&common_config.master_addrs).await?;
 
         Ok(Client {
-            config: client_config,
             common_config,
             master_client,
         })
@@ -142,9 +142,9 @@ impl Client {
         chunk_info_list: Vec<ChunkInfo>,
         file_name: String,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        println!("Attempting to open file: {}", file_name);
+        debug!("Attempting to open file: {}", file_name);
         let mut file = File::open(&file_name).await.map_err(|e| {
-            eprintln!("Failed to open file '{}': {}", file_name, e);
+            error!("Failed to open file '{}': {}", file_name, e);
             e
         })?;
 
@@ -193,7 +193,7 @@ impl Client {
                         })
                         .await
                     {
-                        eprintln!("Failed to send file info: {}", e);
+                        error!("Failed to send file info: {}", e);
                         return;
                     }
 
@@ -205,7 +205,7 @@ impl Client {
                         })
                         .await
                     {
-                        eprintln!("Failed to send file chunk: {}", e);
+                        error!("Failed to send file chunk: {}", e);
                         return;
                     }
                 });
@@ -214,7 +214,7 @@ impl Client {
                     .upload(Request::new(ReceiverStream::new(rx)))
                     .await?;
 
-                println!(
+                debug!(
                     "Upload Response from server {} for chunk {}: {}",
                     server_address,
                     chunk_index,
@@ -223,7 +223,7 @@ impl Client {
             }
         }
 
-        println!("File upload completed successfully.");
+        info!("File upload completed successfully.");
         Ok(())
     }
 
@@ -275,7 +275,7 @@ impl Client {
                             .await
                         {
                             Ok(response) => {
-                                println!(
+                                info!(
                                     "Delete Response from {} for chunk {}: {}",
                                     server_address,
                                     chunk_id,
@@ -283,7 +283,7 @@ impl Client {
                                 );
                             }
                             Err(e) => {
-                                eprintln!(
+                                error!(
                                     "Failed to delete chunk {} from server {}: {}",
                                     chunk_id, server_address, e
                                 );
@@ -291,7 +291,7 @@ impl Client {
                         }
                     }
                     Err(e) => {
-                        eprintln!(
+                        error!(
                             "Failed to connect to chunk server {} for chunk {}: {}",
                             server_address, chunk_id, e
                         );
@@ -321,13 +321,13 @@ impl Client {
                 }))
                 .await?;
 
-            println!(
+            info!(
                 "Append Response from server {}: {}",
                 server_address,
                 response.into_inner().message
             );
         } else {
-            println!("No servers available to append data.");
+            error!("No servers available to append data.");
         }
         Ok(())
     }
@@ -335,14 +335,32 @@ impl Client {
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // load logging config
+    let config = load_config("config.toml")?;
+    let log_path = config.client.log_path;
+    let log_level = config.common.log_level;
+
+    // Set up logger
+    let file_appender = rolling::daily(log_path, "client.log");
+    let stdout_layer = fmt::layer().with_writer(std::io::stdout).with_ansi(true);
+    let file_layer = fmt::layer().with_writer(file_appender).with_ansi(false); // Disable ANSI escape codes for file logs
+    let env_filter = EnvFilter::from_default_env().add_directive(log_level.parse().unwrap());
+    let subscriber = Registry::default()
+        .with(env_filter)
+        .with(stdout_layer)
+        .with(file_layer);
+
+    tracing::subscriber::set_global_default(subscriber)
+        .expect("Failed to set global default subscriber");
+
     // Create client instance and load config
     let mut client = Client::new("config.toml").await?;
 
     // Parse command-line arguments
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        eprintln!("Usage: client <command> [arguments]");
-        eprintln!("Commands: upload <file_name>, read <file_name>, delete <file_name>");
+        error!("Usage: client <command> [arguments]");
+        error!("Commands: upload <file_name>, read <file_name>, delete <file_name>");
         return Ok(());
     }
     let operation = args[1].as_str();
@@ -350,18 +368,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     match operation {
         "upload" => {
             if args.len() < 3 {
-                eprintln!("Usage: upload <file_name>");
+                error!("Usage: upload <file_name>");
                 return Ok(());
             }
             let file_name = args[2].clone();
             let file_metadata = tokio::fs::metadata(&file_name).await.map_err(|e| {
-                eprintln!("Failed to get metadata for file '{}': {}", file_name, e);
+                error!("Failed to get metadata for file '{}': {}", file_name, e);
                 e
             })?;
             let file_size = file_metadata.len();
-            println!("File size: {} bytes", file_size);
+            debug!("File size: {} bytes", file_size);
 
-            println!("Requesting chunk assignment for file: {}", file_name);
+            info!("Requesting chunk assignment for file: {}", file_name);
             let assign_response = client
                 .master_client
                 .assign_chunks(Request::new(AssignRequest {
@@ -370,18 +388,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 }))
                 .await?
                 .into_inner();
-            println!("Got chunk assignment for file: {}", file_name);
+            debug!("Got chunk assignment for file: {}", file_name);
 
             if let Err(e) = client
                 .upload_file(assign_response.chunk_info_list, file_name)
                 .await
             {
-                eprintln!("Error during upload: {}", e);
+                error!("Error during upload: {}", e);
             }
         }
         "read" => {
             if args.len() < 3 {
-                eprintln!("Usage: read <file_name>");
+                error!("Usage: read <file_name>");
                 return Ok(());
             }
             let file_name = args[2].as_str();
@@ -389,7 +407,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .get_randomized_server_addresses(file_name)
                 .await
                 .map_err(|e| {
-                    eprintln!("Error retrieving random server addresses: {}", e);
+                    error!("Error retrieving random server addresses: {}", e);
                     e
                 })?;
 
@@ -397,12 +415,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .read_file(randomized_server_addresses, file_name)
                 .await
             {
-                eprintln!("Error during read: {}", e);
+                error!("Error during read: {}", e);
             }
         }
         "delete" => {
             if args.len() < 3 {
-                eprintln!("Usage: delete <file_name>");
+                error!("Usage: delete <file_name>");
                 return Ok(());
             }
             let file_name = args[2].as_str();
@@ -413,12 +431,12 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     .get_all_server_addresses(file_name)
                     .await
                     .map_err(|e| {
-                        eprintln!("Error retrieving server addresses: {}", e);
+                        error!("Error retrieving server addresses: {}", e);
                         e
                     })?;
 
             if all_server_addresses.is_empty() {
-                eprintln!("No chunk servers found for file '{}'.", file_name);
+                error!("No chunk servers found for file '{}'.", file_name);
                 return Ok(());
             }
 
@@ -431,9 +449,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             match client.master_client.delete_file(request).await {
                 Ok(response) => {
                     if response.get_ref().success {
-                        println!("File '{}' deleted successfully.", file_name);
+                        info!("File '{}' deleted successfully.", file_name);
                     } else {
-                        eprintln!(
+                        error!(
                             "Failed to delete file '{}': {}",
                             file_name,
                             response.get_ref().message
@@ -442,18 +460,18 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
                 Err(e) => {
-                    eprintln!("Error during delete: {}", e);
+                    error!("Error during delete: {}", e);
                     return Ok(()); // Stop further execution if the RPC call failed
                 }
             }
 
             if let Err(e) = client.delete_file(all_server_addresses, file_name).await {
-                eprintln!("Error during delete: {}", e);
+                error!("Error during delete: {}", e);
             }
         }
         "append" => {
             if args.len() < 4 {
-                eprintln!("Usage: append <file_name> <data>");
+                error!("Usage: append <file_name> <data>");
                 return Ok(());
             }
             let file_name = args[2].as_str();
@@ -462,7 +480,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .get_primary_server_addresses(file_name)
                 .await
                 .map_err(|e| {
-                    eprintln!("Error retrieving server addresses: {}", e);
+                    error!("Error retrieving server addresses: {}", e);
                     e
                 })?;
 
@@ -470,11 +488,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                 .append_file(primary_server_addresses, file_name, data)
                 .await
             {
-                eprintln!("Error during append: {}", e);
+                error!("Error during append: {}", e);
             }
         }
         _ => {
-            eprintln!("Invalid command. Available commands: upload, read, delete, append");
+            error!("Invalid command. Available commands: upload, read, delete, append");
         }
     }
 

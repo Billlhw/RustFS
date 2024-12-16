@@ -6,6 +6,7 @@ use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
 use tokio::time::{self, Duration};
+use tracing::{debug, error, info, warn};
 
 use crate::config::{CommonConfig, MasterConfig};
 use crate::proto::master;
@@ -142,20 +143,20 @@ impl MasterService {
 
                         match client.ping_master(request).await {
                             Ok(_) => {
-                                println!("[Shadow Master] Master is alive at {}", master_address)
+                                info!("[Shadow Master] Master is alive at {}", master_address)
                             }
-                            Err(e) => eprintln!("[Shadow Master] Ping failed: {}", e),
+                            Err(e) => error!("[Shadow Master] Ping failed: {}", e),
                         }
                     }
                     Err(e) => {
-                        eprintln!("[Shadow Master] Failed to connect to master: {}", e);
+                        error!("[Shadow Master] Failed to connect to master: {}", e);
 
                         // Assume leadership
                         {
                             let mut leader_lock = is_leader_flag.write().await;
                             *leader_lock = true;
                         }
-                        println!("[Shadow Master] Taking over as leader");
+                        info!("[Shadow Master] Taking over as leader");
 
                         // Start the heartbeat checker as the new leader
                         self.start_heartbeat_checker().await;
@@ -171,14 +172,14 @@ impl MasterService {
     pub async fn propagate_metadata_updates(&self) {
         let metadata = self.collect_metadata().await;
         let shadow_masters = self.shadow_masters.read().await;
-        println!("Sening to shadow masters: {:?}", shadow_masters);
+        info!("Sending to shadow masters: {:?}", shadow_masters);
 
         for shadow_master in shadow_masters.iter() {
             if let Err(e) = self
                 .send_metadata_to_shadow_master(shadow_master, &metadata)
                 .await
             {
-                eprintln!(
+                error!(
                     "Failed to send metadata to shadow master {}: {}",
                     shadow_master, e
                 );
@@ -249,7 +250,7 @@ impl MasterService {
                     continue;
                 }
 
-                println!("[Cron Task] Failed servers detected: {:?}", failed_servers);
+                warn!("[Cron Task] Failed servers detected: {:?}", failed_servers);
 
                 // Handle reassigning chunks for each failed server
                 for failed_server in failed_servers.clone() {
@@ -261,7 +262,7 @@ impl MasterService {
                             .unwrap_or_default()
                     };
 
-                    println!(
+                    info!(
                         "[Cron Task] Reassigning chunks from failed server: {:?}",
                         chunks_to_reassign
                     );
@@ -302,14 +303,14 @@ impl MasterService {
                         };
 
                         if source_servers.is_empty() {
-                            eprintln!(
+                            error!(
                                 "[Cron Task] No healthy source servers found for chunk '{}'. Skipping reassignment.",
                                 chunk_info.chunk_id
                             );
                             continue;
                         }
 
-                        println!(
+                        info!(
                             "[Cron Task] Chunk {:?} source servers: {:?}",
                             chunk_info.chunk_id, source_servers
                         );
@@ -333,7 +334,7 @@ impl MasterService {
                         };
                         let needed_replicas = common_config.replication_factor - existing_replicas;
                         if needed_replicas == 0 {
-                            println!(
+                            info!(
                                 "[Cron Task] Chunk '{}' already has enough replicas on healthy servers.",
                                 chunk_info.chunk_id
                             );
@@ -353,7 +354,7 @@ impl MasterService {
                                 .map(|(addr, chunks)| (addr.clone(), chunks.clone()))
                                 .collect()
                         };
-                        println!(
+                        debug!(
                             "[Cron Task] Chunk {:?} has available servers: {:?}",
                             chunk_info.chunk_id, available_servers
                         );
@@ -378,14 +379,14 @@ impl MasterService {
                         }
 
                         if selected_servers.is_empty() {
-                            eprintln!(
+                            error!(
                                 "[Cron Task] No selected servers to reassign chunk '{}'",
                                 chunk_info.chunk_id
                             );
                             continue;
                         }
 
-                        println!(
+                        info!(
                             "[Cron Task] Reassigning chunk '{}' to servers: {:?}",
                             chunk_info.chunk_id, selected_servers
                         );
@@ -396,7 +397,7 @@ impl MasterService {
                             let source_server = match source_servers.get(0) {
                                 Some(server) => server.clone(),
                                 None => {
-                                    eprintln!("[Cron Task] No source servers available. Skipping target '{}'", target_server);
+                                    error!("[Cron Task] No source servers available. Skipping target '{}'", target_server);
                                     continue;
                                 }
                             };
@@ -410,7 +411,7 @@ impl MasterService {
                                 {
                                     Ok(client) => client,
                                     Err(e) => {
-                                        eprintln!(
+                                        error!(
                                         "[Cron Task] Failed to connect to source server '{}': {}",
                                         source_server, e
                                     );
@@ -430,13 +431,13 @@ impl MasterService {
                                 .await
                             {
                                 Ok(_) => {
-                                    println!(
+                                    info!(
                                         "[Cron Task] Successfully transferred chunk '{}' from source server '{}' to target server '{}'.",
                                         chunk_id, source_server, target_server
                                     );
                                 }
                                 Err(e) => {
-                                    eprintln!(
+                                    error!(
                                         "[Cron Task] Failed to transfer chunk '{}' from '{}' to '{}': {}",
                                         chunk_id, source_server, target_server, e
                                     );

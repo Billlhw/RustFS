@@ -7,7 +7,7 @@ use crate::master::PingMasterRequest;
 use rustfs::config::load_config;
 use rustfs::master_service::MasterService;
 use rustfs::proto::master;
-use tracing::{error, info};
+use tracing::{error, info, warn};
 use tracing_appender::rolling;
 use tracing_subscriber::{fmt, layer::SubscriberExt, EnvFilter, Registry};
 
@@ -84,7 +84,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
                     }
                 }
             }
-            Err(e) => error!("Failed to connect to {}: {}", master_addr, e),
+            Err(e) => warn!("Failed to connect to {}: {}", master_addr, e),
         }
     }
 

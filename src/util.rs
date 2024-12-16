@@ -1,5 +1,5 @@
 use crate::proto::master::master_client::MasterClient;
-use tracing::{error, info};
+use tracing::{info, warn};
 
 /// Connect to the master given the list of servers
 pub async fn connect_to_master(
@@ -12,7 +12,7 @@ pub async fn connect_to_master(
                 return Ok(client); // Return the MasterClient directly
             }
             Err(e) => {
-                error!("Failed to connect to master at {}: {}", addr, e);
+                warn!("Failed to connect to master at {}: {}", addr, e);
             }
         }
     }
@@ -20,6 +20,6 @@ pub async fn connect_to_master(
     // If none of the addresses are connectable, return an error
     Err(Box::new(std::io::Error::new(
         std::io::ErrorKind::NotFound,
-        "No master servers are connectable",
+        "No master server is connectable",
     )))
 }

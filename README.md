@@ -6,9 +6,15 @@
 
 
 ## 1. Motivation
-Distributed file systems are the backbone of modern data-driven applications, offering scalability, reliability, and high availability. With Rust's rise as a systems programming language, its ecosystem has grown to include high-performance and resilient storage systems. However, many of these implementations lack advanced features such as end-to-end encryption, real-time file tailing, and robust fault tolerance mechanisms.
+Distributed file systems are the backbone of modern data-driven applications, offering scalability, reliability, and high availability. With Rust's rise as a systems programming language, its ecosystem has expanded to include high-performance and resilient storage systems.
 
-Our motivation stems from a desire to fill this gap and leverage Rust's concurrency and memory safety to create a state-of-the-art distributed file system. Inspired by the Google File System (GFS), our system incorporates advanced functionality tailored for modern distributed environments, making it secure, reliable, and user-friendly. This project provided us with an opportunity to explore distributed systems concepts while addressing a real-world need for enhanced distributed storage capabilities in the Rust ecosystem.
+While the Google File System (GFS) has inspired numerous distributed file systems, it is not open source, and critical aspects of its design, such as node discovery for the master and load balancing algorithms, are not explicitly documented. Moreover, existing implementations of GFS are insufficient for real-world use cases. For instance, the Python-based implementation in [1] fails to separate files into chunks, violating the core principle of chunkservers. Similarly, the Rust-based implementation rdfs [2] provides only a toy model of a file system, lacking fundamental details needed for a robust and scalable distributed file system.
+
+One of the key advantages of chunk-based storage, as used in GFS, is its ability to divide large files into smaller, fixed-size chunks. This approach allows for efficient data distribution across multiple nodes, enhancing scalability and parallelism. Additionally, chunk-based storage facilitates fault tolerance by enabling the replication of individual chunks across different nodes, ensuring data availability even in the event of node failures.
+
+Our project aims to bridge this gap by leveraging Rust's concurrency and memory safety features to develop a distributed file system that adheres to the principles of GFS. All components of our system are fault-tolerant, ensuring reliability and availability in distributed environments. Our implementation includes chunk-based storage, master node fault recovery, and efficient load balancing, all inspired by GFS, making it a performant and highly available solution.
+
+This project provided us with an opportunity to explore distributed systems concepts and address a real-world need for a complete, reliable, and user-friendly distributed file system in the Rust ecosystem. By contributing a robust implementation, we aim to fill the existing gap and provide a foundation for future enhancements in the distributed storage domain.
 
 ## 2. Objectives
 The objective of our project is to develop a scalable, high-available, and high-performance file storage system. Our system aims to support growing data and user demands by allowing on-demand addition of storage nodes without disrupting existing operations. To ensure high availability and durability, the system is resilient to component failures and supports automatic detection and recovery of node failures. Efficiency is further optimized through client-side metadata caching, and planning of dataflow during mutations. Additionally, we will incorporate advanced functionality, including access control, end-to-end encryption, and file tailing.
@@ -211,29 +217,37 @@ File successfully deleted.
 
 ## 6. Contributions by Team Members
 - **Yiren Zhao**:
-  - Developed the chunkserver logic, including data storage and replication mechanisms.
-  - Implemented core file operations such as upload, read, append, and delete.
-  - Designed and tested real-time file tailing.
+  - Designed and implemented the chunkserver logic, including data storage and replication mechanisms, ensuring efficient and reliable data handling across the system.
+  - Engineered the fault detection and failure recovery mechanism for chunkservers.
+  - Developed the leader selection algorithm for the master node, enabling seamless coordination of components in the distributed system.
+  - Built and throughly tested the core file operations, including upload, read, append, and delete, ensuring the system's usability.
 
 - **Haowei Li**:
-  - Developed the master node logic, including metadata management and load balancing.
-  - Implemented fault detection and recovery mechanisms for master and chunkservers.
-  - Designed and implemented the user authentication and encryption mechanisms.
+  - Architected the master node logic, encompassing metadata management and load balancing to maintain system performance and consistency.
+  - Designed and implemented metadata update propagation feature and master failure recovery mechanisms
+  - Programmed the logic to split files into chunks for file operations, adhering to the core principles of chunk-based distributed storage.
+  - Developed real-time file tailing feature.
 
 ## 7. Lessons Learned and Concluding Remarks
 
 ### Lessons Learned
-Throughout this project, we gained invaluable insights into distributed systems, fault tolerance, and the challenges of ensuring consistency in a distributed environment. Working with Rust deepened our understanding of memory safety and concurrency. The project demonstrated the importance of designing for scalability and modularity, as we were able to add advanced features without disrupting the core system.
+Throughout this project, we gained invaluable insights into the complexities of distributed systems, particularly in ensuring fault tolerance and consistency across distributed environments. Working with Rust provided a deeper understanding of memory safety and concurrency, while also introducing unique challenges. For instance, deadlocks are still possible in Rust, and while they are relatively easier to trace, avoiding "hold and wait" conditions requires careful attention during programming.
 
-We believe this project lays a strong foundation for further exploration of distributed file systems in Rust, potentially serving as a base for more advanced research or commercial implementations. Future work could include integrating machine learning for predictive load balancing and extending the system to support object storage for cloud environments.
+One significant takeaway was the importance of designing for scalability and modularity. By planning a modular architecture, we were able to add features without disrupting the core system. However, we realized that refactoring is essential for maintaining clarity and usability, especially in middle- to large-sized projects. For example, implementing the master node logic resulted in files exceeding 1,000 lines of code, which became challenging to maintain. Breaking down such large functionalities into manageable modules in Rust requires careful planning from the start.
+
+The development lifecycle in Rust also differed significantly from our experience with other languages. Fixing syntax and ownership-related issues consumed far more time than debugging runtime errors, a stark contrast to languages like C++. This shift highlighted the need for a development plan that allocates more time to the coding phase and anticipates a steeper learning curve. That said, the trade-off is fewer runtime errors and more predictable behavior, which we found highly valuable.
+
+Another critical lesson was the importance of thorough design planning prior to implementation. For example, designing the master coordination algorithm—including leader selection and keeping shadow masters up-to-date after a master node failure—required careful consideration. A clear and well-documented plan not only helped us avoid pitfalls but also significantly expedited development.
+
+Looking ahead, we believe this project lays a strong foundation for further exploration of distributed file systems in Rust. The system could potentially serve as a base for more advanced research or commercial applications. Future work might include integrating machine learning for predictive load balancing or extending the system to support object storage for cloud environments.
 
 ### Concluding Remarks
 This project successfully combines core file storage functionalities with advanced features like encryption, file tailing, and fault tolerance. The system is scalable, secure, and resilient to failures. Future work could include optimizing the metadata handling for large-scale deployments and adding support for cross-rack replication.
 
 ## 8. References
-[1] Ghemawat, Sanjay, Howard Gobioff, and Shun-Tak Leung. "The Google file system." Proceedings of the nineteenth ACM symposium on Operating systems principles. 2003.
+[1] "Google File System," GitHub repository, Available: https://github.com/chaitanya100100/Google-File-System/tree/master/src. [Accessed: Dec. 15, 2024].
 
-[2] Crust Network. Crust: Decentralized Storage Network for Web3. GitHub, n.d., https://github.com/crustio/crust. Accessed 3 Nov. 2024.
+[2] "rdfs: A Rust-based distributed file system," GitHub repository, Available: https://github.com/watthedoodle/rdfs. [Accessed: Dec. 15, 2024].
 
 ## **License**
 This project is licensed under the MIT License. See the LICENSE file for more details.

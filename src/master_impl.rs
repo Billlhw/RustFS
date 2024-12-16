@@ -414,7 +414,7 @@ pub async fn determine_leader(self_addr: &str, master_addrs: &[String]) -> Optio
                 }
             }
             Err(e) => {
-                error!("Failed to connect to {}: {}", addr, e);
+                warn!("Failed to connect to {}: {}", addr, e);
             }
         }
     }

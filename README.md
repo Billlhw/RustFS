@@ -33,7 +33,7 @@ The load balancing algorithm is not explicitly described in the GFS paper. We il
 
 Figure 2 provides an example of the distribution of chunks across chunkservers. Each file can be divided into a different number of chunks, depending on its size. Each chunk has the same number of replicas, and we allow the replication factor to be configurable. Notably, in the system, the distribution of replicas on chunkservers is balanced, and no single chunkserver stores multiple replicas of the same chunk, which adheres to the principle of replication for improved fault tolerance.
 ![Chunk_Diagram_v2](https://github.com/user-attachments/assets/fd8036bf-a3f2-4a83-8b68-f64fe6f44f6a)
-*Figure 2: Distribution of chunks on chunkservers*
+*Figure 2: Distribution of Chunks on Chunkservers*
 
 When a new chunk needs to be assigned, the master identifies all available nodes, meaning nodes with a load less than max_allowed_chunks, which is a configurable parameter that manages the maximum amount of data each chunkserver can handle. The algorithm then iteratively selects available chunkservers for all replicas, prioritizing those with the minimal load.
 

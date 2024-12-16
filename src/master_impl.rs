@@ -7,10 +7,10 @@ use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, warn};
 
 use crate::proto::master::{
-    AssignRequest, AssignResponse, ChunkInfo, DeleteFileRequest, DeleteFileResponse,
-    FileChunkMapping, FileChunkMappingRequest, HeartbeatRequest, HeartbeatResponse,
-    PingMasterRequest, PingMasterResponse, RegisterRequest, RegisterResponse,
-    UpdateMetadataRequest, UpdateMetadataResponse,
+    AssignRequest, AssignResponse, AuthenticateRequest, AuthenticateResponse, ChunkInfo,
+    DeleteFileRequest, DeleteFileResponse, FileChunkMapping, FileChunkMappingRequest,
+    HeartbeatRequest, HeartbeatResponse, PingMasterRequest, PingMasterResponse, RegisterRequest,
+    RegisterResponse, UpdateMetadataRequest, UpdateMetadataResponse,
 };
 
 // Import `MasterService` from `master_service.rs`
@@ -19,6 +19,29 @@ use crate::proto::master::master_server::Master;
 
 #[tonic::async_trait]
 impl Master for Arc<MasterService> {
+    async fn authenticate(
+        &self,
+        request: Request<AuthenticateRequest>,
+    ) -> Result<Response<AuthenticateResponse>, Status> {
+        let request_inner = request.into_inner();
+        let username = request_inner.username;
+        let password = request_inner.password;
+        info!("[Authenticate] authenticating user {}", username);
+
+        match self.authenticate_user(&username, &password).await {
+            Ok((otp, expiration_time)) => Ok(Response::new(AuthenticateResponse {
+                otp,
+                expiration_time: expiration_time as i64,
+            })),
+            Err(e) => {
+                error!("[Authenticate] Error generating OTP: {}", e);
+                Err(Status::internal(
+                    "Failed to generate OTP: invalid username or password",
+                ))
+            }
+        }
+    }
+
     async fn register_chunk_server(
         &self,
         request: Request<RegisterRequest>,

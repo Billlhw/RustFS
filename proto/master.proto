@@ -24,6 +24,9 @@ service Master {
 
   // Propagate metadata updates to the shadow master
   rpc UpdateMetadata(UpdateMetadataRequest) returns (UpdateMetadataResponse);
+
+  // Authenticate a user and genreate OTP
+  rpc Authenticate(AuthenticateRequest) returns (AuthenticateResponse);
 }
 
 message PingMasterRequest {
@@ -102,4 +105,14 @@ message UpdateMetadataRequest {
 
 message UpdateMetadataResponse {
   string message = 1; // Confirmation of metadata update
+}
+
+message AuthenticateRequest {
+    string username = 1;
+    string password = 2;
+}
+
+message AuthenticateResponse {
+    string otp = 1; // One-time password for the client
+    int64 expiration_time = 2; // OTP expiration time (UNIX timestamp)
 }

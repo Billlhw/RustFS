@@ -1,7 +1,9 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::Mutex;
 use tokio::time::Duration;
+use tonic::Status;
 use tracing::{error, info};
 
 use crate::config::{ChunkServerConfig, CommonConfig};
@@ -15,6 +17,7 @@ pub struct ChunkService {
     pub server_chunks: Arc<Mutex<HashSet<String>>>, // Track metadata of all chunks stored
     pub config: ChunkServerConfig,
     pub common_config: CommonConfig,
+    pub otp_store: Arc<Mutex<HashMap<String, u64>>>, // Store OTPs with expiration
 }
 
 impl ChunkService {
@@ -30,6 +33,7 @@ impl ChunkService {
             addr_sanitized: addr_sanitized.to_string(),
             config,
             common_config,
+            otp_store: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 
@@ -97,5 +101,45 @@ impl ChunkService {
         });
 
         Ok(())
+    }
+
+    /// Periodic cleanup for outdated OTP
+    pub fn start_otp_cleanup(&self) {
+        let otp_store = self.otp_store.clone();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(Duration::from_secs(300)).await;
+                let now = SystemTime::now()
+                    .duration_since(UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs();
+
+                let mut otp_store_guard = otp_store.lock().await;
+                otp_store_guard.retain(|_, expiration| *expiration > now);
+
+                info!("[start_otp_cleanup] Cleaned up expired OTPs.");
+            }
+        });
+    }
+
+    pub async fn validate_otp(&self, otp: &str) -> Result<(), Status> {
+        if !self.common_config.use_authentication {
+            // Skip OTP validation if authentication is disabled
+            return Ok(());
+        }
+
+        let otp_store_guard = self.otp_store.lock().await;
+        if let Some(&expiration_time) = otp_store_guard.get(otp) {
+            let now = SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs();
+
+            if expiration_time > now {
+                return Ok(()); // OTP is valid
+            }
+        }
+
+        Err(Status::unauthenticated("Invalid or expired OTP"))
     }
 }

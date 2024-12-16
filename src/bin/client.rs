@@ -24,6 +24,7 @@ pub mod chunk {
 pub struct Client {
     common_config: CommonConfig,
     master_client: MasterClient<tonic::transport::Channel>,
+    otp: Option<String>,
 }
 
 impl Client {
@@ -36,7 +37,51 @@ impl Client {
         Ok(Client {
             common_config,
             master_client,
+            otp: None,
         })
+    }
+
+    pub async fn authenticate(
+        &mut self,
+        username: &str,
+        password: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        if !self.common_config.use_authentication {
+            info!("Authentication is disabled. Skipping OTP request.");
+            return Ok(());
+        }
+        info!("Authenticating user: {}", username);
+
+        // Create and send the authentication request to the master server
+        let response = self
+            .master_client
+            .authenticate(Request::new(rustfs::proto::master::AuthenticateRequest {
+                username: username.to_string(),
+                password: password.to_string(),
+            }))
+            .await;
+
+        match response {
+            Ok(response) => {
+                let auth_response = response.into_inner();
+                self.otp = Some(auth_response.otp);
+
+                info!(
+                    "User '{}' authenticated successfully. OTP received and stored.",
+                    username
+                );
+                Ok(())
+            }
+            Err(err) => {
+                // Log the specific error and re-throw it
+                error!(
+                    "Authentication failed for user '{}': {}",
+                    username,
+                    err.message()
+                );
+                Err(Box::new(err))
+            }
+        }
     }
 
     /// Randomly select a server address for each chunk for read operations
@@ -180,16 +225,20 @@ impl Client {
                 let file_name_clone = file_name.clone();
                 let chunk_id = chunk_info.chunk_id.clone();
                 let chunk_data = chunk.clone();
+                let otp_clone = self.otp.clone();
+                let otp_value = otp_clone.unwrap_or_else(|| "".to_string());
 
                 tokio::spawn(async move {
                     let file_info = FileInfo {
                         file_name: file_name_clone,
-                        chunk_id: chunk_id.parse::<u64>().unwrap_or(0), // 使用 chunk_id
+                        chunk_id: chunk_id.parse::<u64>().unwrap_or(0),
                     };
 
                     if let Err(e) = tx
                         .send(UploadRequest {
                             request: Some(chunk::upload_request::Request::Info(file_info)),
+                            otp: otp_value.clone(),
+                            is_internal: false,
                         })
                         .await
                     {
@@ -202,6 +251,8 @@ impl Client {
                     if let Err(e) = tx
                         .send(UploadRequest {
                             request: Some(chunk::upload_request::Request::Chunk(file_chunk)),
+                            otp: otp_value.clone(),
+                            is_internal: false,
                         })
                         .await
                     {
@@ -234,6 +285,8 @@ impl Client {
         file_name: &str,
     ) -> Result<String, Box<dyn std::error::Error>> {
         let mut file_content = String::new();
+        let otp_clone = self.otp.clone();
+        let otp_value = otp_clone.unwrap_or_else(|| "".to_string());
 
         for (chunk_id, server_address) in randomized_server_addresses.iter().enumerate() {
             // Connect to the chunk server
@@ -245,6 +298,7 @@ impl Client {
                 .read(Request::new(ReadRequest {
                     file_name: file_name.to_string(),
                     chunk_id: chunk_id as u64,
+                    otp: otp_value.clone(),
                 }))
                 .await?;
 
@@ -261,6 +315,9 @@ impl Client {
         all_server_addresses: Vec<Vec<String>>, // 2D vector of server addresses for each chunk
         file_name: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        let otp_clone = self.otp.clone();
+        let otp_value = otp_clone.unwrap_or_else(|| "".to_string());
+
         for (chunk_id, server_addresses) in all_server_addresses.iter().enumerate() {
             for server_address in server_addresses {
                 // Connect to the chunk server
@@ -271,6 +328,7 @@ impl Client {
                             .delete(Request::new(DeleteRequest {
                                 file_name: file_name.to_string(),
                                 chunk_id: chunk_id as u64,
+                                otp: otp_value.clone(),
                             }))
                             .await
                         {
@@ -305,29 +363,63 @@ impl Client {
     // Append data to the end of the file
     pub async fn append_file(
         &self,
-        primary_server_addresses: Vec<String>,
+        all_server_addresses: Vec<Vec<String>>, // 2D vector of server addresses
         file_name: &str,
         data: String,
     ) -> Result<(), Box<dyn std::error::Error>> {
-        if let Some((chunk_id, server_address)) = primary_server_addresses.iter().enumerate().last()
-        {
-            let mut chunk_client =
-                ChunkClient::connect(format!("http://{}", server_address)).await?;
-            let response = chunk_client
-                .append(Request::new(AppendRequest {
-                    file_name: file_name.to_string(),
-                    chunk_id: chunk_id as u64,
-                    data,
-                }))
-                .await?;
+        let otp_clone = self.otp.clone();
+        let otp_value = otp_clone.unwrap_or_else(|| "".to_string());
 
-            info!(
-                "Append Response from server {}: {}",
-                server_address,
-                response.into_inner().message
-            );
-        } else {
-            error!("No servers available to append data.");
+        for (chunk_id, server_addresses) in all_server_addresses.iter().enumerate() {
+            let mut append_tasks = vec![];
+
+            for server_address in server_addresses {
+                let chunk_id = chunk_id as u64; // Convert to u64 for compatibility
+                let server_address = server_address.clone();
+                let file_name = file_name.to_string();
+                let data = data.clone();
+                let otp_value = otp_value.clone();
+
+                // Spawn a task for each replica
+                let task = tokio::spawn(async move {
+                    match ChunkClient::connect(format!("http://{}", server_address)).await {
+                        Ok(mut chunk_client) => {
+                            match chunk_client
+                                .append(Request::new(AppendRequest {
+                                    file_name,
+                                    chunk_id,
+                                    data,
+                                    otp: otp_value,
+                                }))
+                                .await
+                            {
+                                Ok(response) => {
+                                    info!(
+                                        "Append Response from server {} for chunk {}: {}",
+                                        server_address,
+                                        chunk_id,
+                                        response.into_inner().message
+                                    );
+                                }
+                                Err(e) => {
+                                    error!(
+                                        "Failed to append to chunk {} on server {}: {}",
+                                        chunk_id, server_address, e
+                                    );
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            error!("Failed to connect to server {}: {}", server_address, e);
+                        }
+                    }
+                });
+
+                append_tasks.push(task);
+            }
+
+            // Wait for all tasks to complete for the current chunk
+            futures::future::join_all(append_tasks).await;
         }
         Ok(())
     }
@@ -359,11 +451,52 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Parse command-line arguments
     let args: Vec<String> = env::args().collect();
     if args.len() < 2 {
-        error!("Usage: client <command> [arguments]");
-        error!("Commands: upload <file_name>, read <file_name>, delete <file_name>");
+        error!("Usage: client <command> [arguments] [-u <username>] [-p <password>]");
+        error!("Commands: upload <file_name>, read <file_name>, delete <file_name>, append <file_name> <data>");
         return Ok(());
     }
     let operation = args[1].as_str();
+    let mut username: Option<String> = None;
+    let mut password: Option<String> = None;
+
+    // Extract the authentication parameters
+    let mut i = 2; // Start after the command name
+    while i < args.len() {
+        match args[i].as_str() {
+            "-u" => {
+                if i + 1 < args.len() {
+                    username = Some(args[i + 1].clone());
+                    i += 1; // Skip the next argument as it's the username
+                } else {
+                    error!("Missing username after -u");
+                    return Ok(());
+                }
+            }
+            "-p" => {
+                if i + 1 < args.len() {
+                    password = Some(args[i + 1].clone());
+                    i += 1; // Skip the next argument as it's the password
+                } else {
+                    error!("Missing password after -p");
+                    return Ok(());
+                }
+            }
+            _ => {} // Ignore other arguments
+        }
+        i += 1;
+    }
+
+    // Authenticate the user
+    if client.common_config.use_authentication {
+        if let (Some(ref username), Some(ref password)) = (username.as_deref(), password.as_deref())
+        {
+            client.authenticate(username, password).await?;
+            info!("after auth");
+        } else {
+            error!("Authentication requires both username and password.");
+            return Ok(());
+        }
+    }
 
     match operation {
         "upload" => {
@@ -476,16 +609,17 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             let file_name = args[2].as_str();
             let data = args[3].to_string();
-            let primary_server_addresses = client
-                .get_primary_server_addresses(file_name)
-                .await
-                .map_err(|e| {
-                    error!("Error retrieving server addresses: {}", e);
-                    e
-                })?;
+            let all_server_addresses =
+                client
+                    .get_all_server_addresses(file_name)
+                    .await
+                    .map_err(|e| {
+                        error!("Error retrieving server addresses: {}", e);
+                        e
+                    })?;
 
             if let Err(e) = client
-                .append_file(primary_server_addresses, file_name, data)
+                .append_file(all_server_addresses, file_name, data)
                 .await
             {
                 error!("Error during append: {}", e);

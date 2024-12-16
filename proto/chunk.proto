@@ -8,6 +8,7 @@ service Chunk {
     rpc Delete(DeleteRequest) returns (DeleteResponse);
     rpc Append(AppendRequest) returns (AppendResponse);
     rpc TransferChunk(SendChunkRequest) returns (SendChunkResponse);
+    rpc SendOtp(OtpRequest) returns (OtpResponse);
 }
 
 message FileInfo {
@@ -25,6 +26,8 @@ message UploadRequest {
         FileInfo info = 1;
         FileChunk chunk = 2;
     }
+    string otp = 3;
+    bool is_internal = 4;
 }
 
 message UploadResponse {
@@ -35,6 +38,7 @@ message UploadResponse {
 message ReadRequest {
     string file_name = 1;
     uint64 chunk_id = 2;
+    string otp = 3;
 }
 
 message ReadResponse {
@@ -45,6 +49,7 @@ message ReadResponse {
 message DeleteRequest {
     string file_name = 1;
     uint64 chunk_id = 2;
+    string otp = 3;
 }
 
 message DeleteResponse {
@@ -55,6 +60,7 @@ message AppendRequest {
   string file_name = 1; // File name to append to
   uint64 chunk_id = 2;  // Chunk id of file
   string data = 3;      // Data to append
+  string otp = 4;
 }
 
 message AppendResponse {
@@ -68,5 +74,16 @@ message SendChunkRequest {
 }
 
 message SendChunkResponse {
+    string message = 1;
+}
+
+// Transfer OTP, for internal usage
+message OtpRequest {
+    string username = 1;
+    string otp = 2;
+    uint64 expiration_time = 3;
+}
+
+message OtpResponse {
     string message = 1;
 }

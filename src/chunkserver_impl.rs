@@ -1,5 +1,5 @@
 use std::fs;
-use tokio::fs::File;
+use tokio::fs::{File, OpenOptions};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tonic::{Request, Response, Status};
 use tracing::{debug, error, info, warn};
@@ -10,12 +10,37 @@ use crate::proto::chunk::chunk_client::ChunkClient;
 use crate::chunkserver_service::ChunkService;
 use crate::proto::chunk::chunk_server::Chunk;
 use crate::proto::chunk::{
-    AppendRequest, AppendResponse, DeleteRequest, DeleteResponse, ReadRequest, ReadResponse,
-    SendChunkRequest, SendChunkResponse, UploadRequest, UploadResponse,
+    AppendRequest, AppendResponse, DeleteRequest, DeleteResponse, OtpRequest, OtpResponse,
+    ReadRequest, ReadResponse, SendChunkRequest, SendChunkResponse, UploadRequest, UploadResponse,
 };
 
 #[tonic::async_trait]
 impl Chunk for ChunkService {
+    /// Store OTP for user
+    async fn send_otp(
+        &self,
+        request: Request<OtpRequest>,
+    ) -> Result<Response<OtpResponse>, Status> {
+        let req = request.into_inner();
+        let username = req.username;
+        let otp = req.otp;
+        let expiration_time = req.expiration_time;
+
+        info!(
+            "[send_otp] Received OTP for user '{}' with expiration time '{}'",
+            username, expiration_time
+        );
+
+        // Store the OTP in the `otp_store` map
+        let mut otp_store_guard = self.otp_store.lock().await;
+        otp_store_guard.insert(otp.clone(), expiration_time);
+
+        // Respond to the master server
+        Ok(Response::new(OtpResponse {
+            message: format!("OTP for user '{}' received successfully.", username),
+        }))
+    }
+
     /// Transfers a chunk from this chunkserver to another chunkserver
     /// Sent from master to chunk server
     async fn transfer_chunk(
@@ -97,11 +122,15 @@ impl Chunk for ChunkService {
                         file_name: file_name_part.to_string(),
                         chunk_id: chunk_id_part,
                     })),
+                    otp: String::new(),
+                    is_internal: true,
                 },
                 UploadRequest {
                     request: Some(chunk::upload_request::Request::Chunk(chunk::FileChunk {
                         data: buffer.clone(),
                     })),
+                    otp: String::new(),
+                    is_internal: true,
                 },
             ])))
             .await
@@ -140,6 +169,14 @@ impl Chunk for ChunkService {
         while let Some(req) = stream.message().await? {
             match req.request {
                 Some(chunk::upload_request::Request::Info(info)) => {
+                    if !req.is_internal {
+                        // Validate OTP only once
+                        if let Err(e) = self.validate_otp(&req.otp).await {
+                            error!("OTP validation failed: {}", e);
+                            return Err(e);
+                        }
+                    }
+
                     file_name = info.file_name.clone();
                     info!("Starting upload for file: {}", file_name);
                     let chunk_id = info.chunk_id;
@@ -179,6 +216,8 @@ impl Chunk for ChunkService {
     /// Read the file chunk
     async fn read(&self, request: Request<ReadRequest>) -> Result<Response<ReadResponse>, Status> {
         let req = request.into_inner();
+        self.validate_otp(&req.otp).await?;
+
         let file_name = req.file_name;
         let chunk_id = req.chunk_id;
         let file_path = format!(
@@ -212,6 +251,8 @@ impl Chunk for ChunkService {
         request: Request<DeleteRequest>,
     ) -> Result<Response<DeleteResponse>, Status> {
         let req = request.into_inner();
+        self.validate_otp(&req.otp).await?;
+
         let file_name = req.file_name;
         let chunk_id = req.chunk_id;
 
@@ -249,6 +290,8 @@ impl Chunk for ChunkService {
         request: Request<AppendRequest>,
     ) -> Result<Response<AppendResponse>, Status> {
         let req = request.into_inner();
+        self.validate_otp(&req.otp).await?;
+
         let file_name = req.file_name;
         let chunk_id = req.chunk_id;
         let data = req.data;
@@ -257,9 +300,12 @@ impl Chunk for ChunkService {
             "{}/{}/{}_chunk_{}",
             self.addr_sanitized, self.config.data_path, file_name, chunk_id
         );
-        info!("Appending to file: {}", file_path);
+        info!("Appending data '{}' to file: {}", data, file_path);
 
-        let mut file = File::open(&file_path)
+        let mut file = OpenOptions::new()
+            .write(true)
+            .append(true)
+            .open(&file_path)
             .await
             .map_err(|e| Status::internal(format!("Failed to open file '{}': {}", file_path, e)))?;
 
@@ -267,6 +313,10 @@ impl Chunk for ChunkService {
         file.write_all(data.as_bytes()).await.map_err(|e| {
             Status::internal(format!("Failed to write to file '{}': {}", file_path, e))
         })?;
+
+        file.sync_all()
+            .await
+            .map_err(|e| Status::internal(format!("Failed to sync file '{}': {}", file_path, e)))?;
 
         Ok(Response::new(AppendResponse {
             message: format!(

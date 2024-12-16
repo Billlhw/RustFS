@@ -1,7 +1,10 @@
 // Implements the internal logic and utilities of the MasterService struct
+use md5;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::cmp::Reverse;
 use std::collections::{BinaryHeap, HashMap, HashSet};
+use std::fs;
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::RwLock;
@@ -490,5 +493,54 @@ impl MasterService {
                 }
             }
         });
+    }
+
+    pub async fn authenticate_user(
+        &self,
+        username: &str,
+        password: &str,
+    ) -> Result<(String, u64), Box<dyn std::error::Error>> {
+        // Load and parse the JSON authentication file
+        let file_content = fs::read_to_string(&self.config.authentication_file_path)?;
+        let auth_data: Value = serde_json::from_str(&file_content)?;
+
+        // Validate the username and password
+        if let Some(user_entry) = auth_data.get(username) {
+            if user_entry["password"] != password {
+                return Err("Invalid username or password".into());
+            }
+        } else {
+            return Err("Invalid username or password".into());
+        }
+
+        // Generate OTP (hash of username and current time)
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        let otp = format!("{:x}", md5::compute(format!("{}_{}", username, now)));
+
+        // Calculate expiration time (e.g., valid for 5 minutes)
+        let expiration_time = now + self.common_config.otp_valid_duration;
+
+        // Propagate OTP to all chunk servers
+        let chunk_servers = self.chunk_servers.read().await;
+        for chunk_server in chunk_servers.keys() {
+            let mut client = ChunkClient::connect(format!("http://{}", chunk_server)).await?;
+            client
+                .send_otp(tonic::Request::new(crate::proto::chunk::OtpRequest {
+                    username: username.to_string(),
+                    otp: otp.clone(),
+                    expiration_time,
+                }))
+                .await?;
+        }
+
+        // Store OTP locally (optional, for reference or logging)
+        debug!(
+            "[authenticate_user] OTP generated for user {} is {}, with expiration time {}",
+            username, otp, expiration_time
+        );
+        Ok((otp, expiration_time))
     }
 }

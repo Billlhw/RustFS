@@ -6,6 +6,7 @@ pub struct MasterConfig {
     pub log_path: String,
     pub cron_interval: u64, // Interval for load balancing cron job
     pub heartbeat_failure_threshold: u64, // Determines when a chunkserver is considered unavailable
+    pub authentication_file_path: String,
 }
 
 #[derive(Clone, Debug, Deserialize, Default)]
@@ -29,6 +30,8 @@ pub struct CommonConfig {
     pub replication_factor: usize,        // Number of chunk replicas
     pub log_level: String,                // Log level (e.g., "debug", "info", etc.)
     pub log_output: String,               // Log output (e.g., "stdout", "file", etc.)
+    pub otp_valid_duration: u64,          // Valid duration of OTP in seconds
+    pub use_authentication: bool,         // Whether to use user authentication feature
 }
 
 #[derive(Clone, Debug, Deserialize)]

@@ -89,6 +89,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         common_config,
     );
 
+    // Periodically cleanup outdated OTP
+    service.start_otp_cleanup();
+
     // Clone the master_client and spawn the heartbeat task at background
     let heartbeat_client = master_client.clone();
     let heartbeat_service = service.clone();

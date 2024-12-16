@@ -19,22 +19,47 @@ This project provided us with an opportunity to explore distributed systems conc
 ## 2. Objectives
 The objective of our project is to develop a scalable, high-available, and high-performance file storage system. Our system aims to support growing data and user demands by allowing on-demand addition of storage nodes without disrupting existing operations. To ensure high availability and durability, the system is resilient to component failures and supports automatic detection and recovery of node failures. Efficiency is further optimized through client-side metadata caching, and planning of dataflow during mutations. Additionally, we will incorporate advanced functionality, including access control, end-to-end encryption, and file tailing.
 
+## 3. Key Features
+In this section, we introduce the key features of the system. Figure 1 presents a component diagram and an illustration of the workflow for a read operation.
+![RustFS_Architecture](https://github.com/user-attachments/assets/89f03f24-207e-4d52-ae97-272d77a791a3)
+*Figure 1: Component Diagram*
 
-## 3. Features
-System Architecture
-![Component_Diagram (1)](https://github.com/user-attachments/assets/b6c7e9d8-0ce8-4420-b78f-84ddd63e108c)
+We adopt a centralized design in which the master node holds and manages metadata. The master node is responsible for assigning chunks to chunkservers, monitoring the liveliness of each chunkserver, and rebalancing load across chunkservers to ensure the availability of file chunks and the read performance of the system. Additionally, this design improves the maintainability of the system and simplifies the implementation of authentication.
 
-### 3.1 Core Features
-- **Centralized Metadata Management**: A master node maintains and replicates metadata, ensuring consistency and durability across the system.
-- **Data Replication**: Files are replicated across multiple chunkservers to guarantee availability and fault tolerance.
-- **Replica Consistency Management**: A lease mechanism ensures that mutations are applied in the same order across replicas.
-- **Scalable Architecture**: The system supports horizontal scaling by adding new chunkservers without service disruption.
+In GFS, centralized management of metadata has the added benefit of ensuring strong consistency by assigning a primary node for each chunk and having the primary node assign a total mutation order for the chunk, which is followed on all other replicas. This is a future step for our system.
 
-### 3.2 Advanced Features
-- **End-to-End Encryption**: Secure data transmission using asymmetric encryption for key exchange and symmetric encryption for file chunks.
-- **Real-Time File Tailing**: Enables real-time updates to append-only files, useful for log tracking.
-- **User Authentication**: Validates client credentials and issues session tokens for secure communication.
-- **Automated Failure Recovery**: Detects master and chunkserver failures and initiates rebalancing or leader election for recovery.
+### 3.1 Load Balancing
+The load balancing algorithm is not explicitly described in the GFS paper. We illustrate an implementation here that can be used as a reference for relevant applications.
+
+Figure 2 provides an example of the distribution of chunks across chunkservers. Each file can be divided into a different number of chunks, depending on its size. Each chunk has the same number of replicas, and we allow the replication factor to be configurable. Notably, in the system, the distribution of replicas on chunkservers is balanced, and no single chunkserver stores multiple replicas of the same chunk, which adheres to the principle of replication for improved fault tolerance.
+![Chunk_Diagram_v2](https://github.com/user-attachments/assets/fd8036bf-a3f2-4a83-8b68-f64fe6f44f6a)
+*Figure 2: Distribution of chunks on chunkservers*
+
+When a new chunk needs to be assigned, the master identifies all available nodes, meaning nodes with a load less than max_allowed_chunks, which is a configurable parameter that manages the maximum amount of data each chunkserver can handle. The algorithm then iteratively selects available chunkservers for all replicas, prioritizing those with the minimal load.
+
+When load rebalancing is required due to a chunkserver crash, the master follows a similar process of selecting available nodes and excluding those already storing replicas of the same chunk. After selecting the new chunkservers, the master instructs an available chunkserver to send the chunk to the newly selected node. For instance, in Figure 2, if Chunkserver 3 crashes, File_1_Chunk_1 will be migrated to Chunkserver 2, and File_2_Chunk_1 will be migrated to Chunkserver 4, as these are the only available chunkservers for the two failed chunks.
+
+### 3.2 Fault Tolerance
+Achieving fault tolerance across all components is essential for scalability, as it enables the system to handle increasing loads without introducing single points of failure. Additionally, fault-tolerant components enhance availability, ensuring the system remains operational and responsive despite hardware failures, network disruptions, or software crashes. Since the client node is stateless and does not require recovery, we focus on the fault tolerance mechanisms for the master and chunkserver nodes.
+
+#### 3.2.1 Fault Tolerance of the Master Node
+Fault tolerance of the master node in GFS involves using external servers to detect the availability of the master node and a DNS server for discovering shadow masters, which serve as backups for the master node. We implement a simplified design that provides fault tolerance without involving external servers, while ensuring a seamless switch to backup nodes.
+
+In the configuration file, we store a list of addresses for all master nodes. The first master node that starts takes on the role of the active master. This is enforced by requiring each master node to ping all other master addresses before assuming the role. If another node responds, indicating it is the currently active master, the newly started master becomes a shadow master.
+
+During normal operations, only the master node is responsible for updating metadata to ensure consistency. Metadata updates are propagated to the shadow masters in real time to ensure that, if the current master crashes, the node that takes over has up-to-date data.
+
+Additionally, shadow masters are configured to ping the master node periodically. If the master node cannot be reached, a shadow master assumes the master role. Once the original master recovers, it becomes a shadow master. This approach works well for a total of two master nodes. For more nodes, there is a risk that multiple shadow masters may concurrently assume the master role. This issue can be resolved by implementing a global ordering of master nodes, with the shadow master of the highest priority taking the master role first. Alternatively, a Rust-based leader election algorithm could be used. This is left as future work.
+
+#### 3.2.2 Chunkservers
+The liveliness of chunkservers is monitored by the master node. Chunkservers send heartbeats to the master node, which periodically checks the latest heartbeat from each chunkserver. If the interval since the last heartbeat exceeds a configurable threshold, the master assumes the chunkserver is down, removes its chunks from metadata, and uses the load rebalancing algorithm introduced in Section 3.1 to reassign the failed chunks.
+
+Write operations are impacted only for the duration of the interval between the master’s periodic checks, which is configurable. Read operations, however, are not suspended during this period because the client selects a random server to read from and retries with another server if the selected one has failed.
+
+### 3.3 Command-Line Interface and Configurability
+Our system provides a standard file system interface to read, upload, append, and delete files, enabling clients to perform essential operations on files stored in GFS. Details about the command formats are provided in Section 5.
+
+Additionally, the designed system is highly configurable. Clients can customize parameters such as the replication factor of each chunk, the maximum number of chunks per chunkserver, the heartbeat interval between chunkservers and the master, and the interval between shadow masters and the master. This flexibility allows clients to tailor the system to their specific needs.
 
 ## 4. Reproducibility Guide
 This guide explains how to clone, set up, build RustFS step-by-step, ensuring a working distributed file system on your local machine.

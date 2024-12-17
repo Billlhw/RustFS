@@ -51,7 +51,7 @@ During normal operations, only the master node is responsible for updating metad
 
 Additionally, shadow masters are configured to ping the master node periodically. If the master node cannot be reached, a shadow master assumes the master role. Once the original master recovers, it becomes a shadow master. This approach works well for a total of two master nodes. For more nodes, there is a risk that multiple shadow masters may concurrently assume the master role. This issue can be resolved by implementing a global ordering of master nodes, with the shadow master of the highest priority taking the master role first. Alternatively, a Rust-based leader election algorithm could be used. This is left as future work.
 
-#### 3.2.2 Chunkservers
+#### 3.2.2 Fault Tolerance of the Chunkservers
 The liveliness of chunkservers is monitored by the master node. Chunkservers send heartbeats to the master node, which periodically checks the latest heartbeat from each chunkserver. If the interval since the last heartbeat exceeds a configurable threshold, the master assumes the chunkserver is down, removes its chunks from metadata, and uses the load rebalancing algorithm introduced in Section 3.1 to reassign the failed chunks.
 
 Write operations are impacted only for the duration of the interval between the master’s periodic checks, which is configurable. Read operations, however, are not suspended during this period because the client selects a random server to read from and retries with another server if the selected one has failed.
@@ -169,17 +169,17 @@ You need to start the **master nodes**, **chunkservers**, and then use the **cli
 ### Step 1: Start Master Nodes
     Start multiple master nodes (as part of leader-election and fault tolerance). Run each of the following commands in a separate terminal window:
     ```
-    target/release/master -a localhost:50001
-    target/release/master -a localhost:50002
-    target/release/master -a localhost:50003
+    target/release/master -a 127.0.0.1:50001
+    target/release/master -a 127.0.0.1:50002
+    target/release/master -a 127.0.0.1:50003
     ```
     Verify the output in each terminal. One of the nodes will elect itself as the leader.
 
 ### Step 2: Start Chunkservers
 Start chunkservers that will store file data. Run each chunkserver in separate terminals:
 ```
-target/release/chunkserver -a localhost:50010
-target/release/chunkserver -a localhost:50011
+target/release/chunkserver -a 127.0.0.1:50010
+target/release/chunkserver -a 127.0.0.1:50011
 ```
 Ensure the `data_path` directory exists for storing chunk data:
 ```

@@ -8,25 +8,21 @@
 https://drive.google.com/file/d/1UHPI_3khvqXPu96EOfEeS2U-vYIC1_0R/view?usp=sharing
 
 ## 1. Motivation
-Distributed file systems are the backbone of modern data-driven applications, offering scalability, reliability, and high availability. With Rust's rise as a systems programming language, its ecosystem has expanded to include high-performance and resilient storage systems.
+Distributed file systems are critical for modern data-driven applications, providing scalability, fault tolerance, and high availability. Rust, with its unique strengths in memory safety, concurrency, and performance, is particularly well-suited for building robust and efficient distributed systems. However, the Rust ecosystem currently lacks a production-grade distributed file system, leaving a clear gap between its technical capabilities and real-world application demands.
 
-While the Google File System (GFS) has inspired numerous distributed file systems, it is not open source, and critical aspects of its design, such as node discovery for the master and load balancing algorithms, are not explicitly documented. Moreover, existing implementations of GFS are insufficient for real-world use cases. For instance, the Python-based implementation in [1] fails to separate files into chunks, violating the core principle of chunkservers. Similarly, the Rust-based implementation rdfs [2] provides only a toy model of a file system, lacking fundamental details needed for a robust and scalable distributed file system.
+Existing solutions inspired by the Google File System (GFS) attempt to replicate its design but fall short. GFS itself is not open source, and critical details, such as master node discovery and load balancing algorithms, remain undocumented. As a result, existing GFS-inspired implementations are speculative and incomplete. For instance, the Python-based implementation in [1] fails to implement chunk-based storage, violating GFS’s fundamental principle of dividing files into fixed-size chunks. Similarly, the Rust-based implementation RDFS [2] is merely a toy model, lacking key features like fault tolerance, scalability, and robust metadata management necessary for real-world deployment. 
 
-One of the key advantages of chunk-based storage, as used in GFS, is its ability to divide large files into smaller, fixed-size chunks. This approach allows for efficient data distribution across multiple nodes, enhancing scalability and parallelism. Additionally, chunk-based storage facilitates fault tolerance by enabling the replication of individual chunks across different nodes, ensuring data availability even in the event of node failures.
-
-Our project aims to bridge this gap by leveraging Rust's concurrency and memory safety features to develop a distributed file system that adheres to the principles of GFS. All components of our system are fault-tolerant, ensuring reliability and availability in distributed environments. Our implementation includes chunk-based storage, master node fault recovery, and efficient load balancing, all inspired by GFS, making it a performant and highly available solution.
-
-This project provided us with an opportunity to explore distributed systems concepts and address a real-world need for a complete, reliable, and user-friendly distributed file system in the Rust ecosystem. By contributing a robust implementation, we aim to fill the existing gap and provide a foundation for future enhancements in the distributed storage domain.
+To address this gap, we propose RustFS, a distributed file storage system that combines GFS's pioneering design with modern enhancements, leveraging Rust’s concurrency and performance to meet real-world deployment demands. Our approach uses a centralized architecture, where a master node coordinates the system and manages access control, ensuring strong consistency for read and write operations and enhancing performance through load balancing across chunkservers. We implement features such as data replication, heartbeats, and automated recovery for both the master node and chunkservers to ensure high reliability and fault tolerance. Moreover, the system interface supports essential file operations, including read, write, append and delete.
 
 ## 2. Objectives
-The objective of our project is to develop a scalable, high-available, and high-performance file storage system. Our system aims to support growing data and user demands by allowing on-demand addition of storage nodes without disrupting existing operations. To ensure high availability and durability, the system is resilient to component failures and supports automatic detection and recovery of node failures. Efficiency is further optimized through client-side metadata caching, and planning of dataflow during mutations. Additionally, we will incorporate advanced functionality, including access control, end-to-end encryption, and file tailing.
+The objective of our project is to develop a scalable, high-available, and high-performance file storage system. Our system aims to support growing data and user demands by allowing on-demand addition of storage nodes without disrupting existing operations. To ensure high availability and durability, the system is resilient to component failures and supports automatic detection and recovery of node failures. Efficiency is further optimized through client-side metadata caching, and planning of dataflow during mutations. 
 
 ## 3. Key Features
 In this section, we introduce the key features of the system. Figure 1 presents a component diagram and an illustration of the workflow for a read operation.
 ![RustFS_Architecture_v3](https://github.com/user-attachments/assets/d18df6a1-7d04-4fa6-a25c-14786d0191fd)
 *Figure 1: Component Diagram*
 
-We adopt a centralized design in which the master node holds and manages metadata. The master node is responsible for assigning chunks to chunkservers, monitoring the liveliness of each chunkserver, and rebalancing load across chunkservers to ensure the availability of file chunks and the read performance of the system. Additionally, this design improves the maintainability of the system and simplifies the implementation of authentication.
+We adopt a centralized design in which the master node holds and manages metadata. The master node is responsible for assigning chunks to chunkservers, monitoring the liveliness of each chunkserver, and rebalancing load across chunkservers to ensure the availability of file chunks and the read performance of the system. Moreover, this design improves the maintainability of the system and simplifies the implementation of authentication.
 
 In GFS, centralized management of metadata has the added benefit of ensuring strong consistency by assigning a primary node for each chunk and having the primary node assign a total mutation order for the chunk, which is followed on all other replicas. This is a future step for our system.
 
@@ -68,32 +64,35 @@ This design enhances security by ensuring that only authenticated users with val
 ### 3.4 Command-Line Interface and Configurability
 Our system provides a standard file system interface to read, upload, append, and delete files, enabling clients to perform essential operations on files stored in GFS while ensuring user-friendliness. Details about the command formats are provided in Section 5.
 
-Additionally, the designed system is highly configurable. Clients can customize parameters such as the replication factor of each chunk, the maximum number of chunks per chunkserver, the heartbeat interval between chunkservers and the master, and the interval between shadow masters and the master. This flexibility allows clients to tailor the system to their specific needs.
+In addition, the designed system is highly configurable. Clients can customize parameters such as the replication factor of each chunk, the maximum number of chunks per chunkserver, the heartbeat interval between chunkservers and the master, and the interval between shadow masters and the master. This flexibility allows clients to tailor the system to their specific needs.
 
 ## 4. Reproducibility Guide
-This guide explains how to clone, set up, build RustFS step-by-step, ensuring a working distributed file system on your local machine.
+This guide provides step-by-step instructions to clone, set up, and build RustFS, ensuring a fully functional distributed file system on your local machine.
 
 ### 4.1 Prerequisites
-Before proceeding, ensure the following requirements are met:
+Before proceeding, ensure your environment meets the following requirements:
 
-#### Operating System
+#### 4.1.1 Operating System
 - **Supported OS**: macOS Sonoma.
 
-#### Rust Installation
+#### 4.1.2 Rust Installation
 RustFS requires the Rust programming language and its package manager, Cargo. Install Rust using the official [rustup installer](https://rustup.rs/):
 ```
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
 
-Once installed, verify the installation:
+Once the installation is complete, verify it by running the following commands:
 ```
 rustc --version
 cargo --version
 ```
-Ensure Rust version is **1.70+**.
+Ensure Rust version is **1.83+**.
 
-#### Hardware Requirements
-At least 4GB RAM and 10GB storage.
+#### 4.1.3 Hardware Requirements
+To ensure smooth operation of RustFS, the following hardware specifications are recommended:
+
+- Memory: At least 4 GB of RAM
+- Storage: Minimum 10 GB of available disk space
 
 ### 4.2 Setting Up RustFS
 
@@ -180,10 +179,10 @@ ls target/release/master target/release/chunkserver target/release/client
 - Check logs for error messages.
   
       
-## 5. Running RustFS Guide
-You need to start the **master nodes**, **chunkservers**, and then use the **client** to interact with the system.
+## 5. User’s Guide: Using RustFS Features
+After setting up and building RustFS in Section 4, you need to start the **master nodes**, **chunkservers**, and then use the **client** to interact with the system.
 
-### Step 1: Start Master Nodes
+#### Step 1: Start Master Nodes
     Start multiple master nodes (as part of leader-election and fault tolerance). Run each of the following commands in a separate terminal window:
     ```
     target/release/master -a 127.0.0.1:50001
@@ -192,7 +191,7 @@ You need to start the **master nodes**, **chunkservers**, and then use the **cli
     ```
     Verify the output in each terminal. One of the nodes will elect itself as the leader.
 
-### Step 2: Start Chunkservers
+#### Step 2: Start Chunkservers
 Start chunkservers that will store file data. Run each chunkserver in separate terminals:
 ```
 target/release/chunkserver -a 127.0.0.1:50010
@@ -204,11 +203,12 @@ mkdir -p data
 ```
 Verify chunkserver logs to ensure they successfully register with the master node.
 
-### Step 3: Test the System Using the Client
+### 5.1 Command-Line Interface for File Operations
+Once the master nodes and chunkservers are running, use the client to perform file operations. Basic operations including uploading, reading, appending, and deleting files. In the following examples, replace ```<file_name>``` with a file name such as ```example.txt```, replace ```<data>``` with string such as ```abc```.
 
-Once the master nodes and chunkservers are running, use the client to perform file operations. Basic operations including uploading, reading, appending, and deleting files. The following examples demonstrate these operations using ```example.txt``` as the ```<file_name>```:
 
-#### Command 1: Upload a File
+
+#### 5.1.1 Upload a File
 
 Upload a file to the distributed file system:
 
@@ -223,7 +223,7 @@ File successfully uploaded.
 ```
 
 
-#### Command 2: Read a File
+#### 5.1.2 Read a File
 Read the contents of a file stored in the system:
 ```
 target/release/client read <file_name>
@@ -235,7 +235,7 @@ File contents:
 [contents of <file_name>]
 ```
 
-#### Command 3: Append to a File
+#### 5.1.3 Append to a File
 Append data to the end of an existing file:
 
 ```
@@ -247,7 +247,7 @@ Appending data to <file_name>...
 Append successful.
 ```
 
-#### Command 4: Delete a File
+#### 5.1.4 Delete a File
 Delete a file from the system:
 ```
 target/release/client delete <file_name>
@@ -258,30 +258,23 @@ Deleting <file_name>...
 File successfully deleted.
 ```
 
-### Authentication Feature
+### 5.2: Authentication Feature
 To use this feature, modify the value of `use_authentication` in the `config.toml` file:
 ```
 use_authentication = false
 ```
-After updating the configuration, restart both the master and chunkserver processes to apply the changes.
-Use the -u and -p flags to provide the username and password, respectively:
+After modifying the configuration, restart both the master nodes and chunkservers (refer to Step 1 and Step 2 at the beginning of this section) to apply the changes. 
+
+When authentication is enabled, use the -u and -p flags with the client commands to provide the username and password:
 ```
 target/release/client upload example.txt -u user1 -p password1
 target/release/client read example.txt -u user1 -p password1
 ```
 
 ## 6. Contributions by Team Members
-- **Yiren Zhao**:
-  - Designed and implemented the chunkserver logic, including data storage and replication mechanisms, ensuring efficient and reliable data handling across the system.
-  - Engineered the fault detection and failure recovery mechanism for chunkservers.
-  - Developed the leader selection algorithm for the master node, enabling seamless coordination of components in the distributed system.
-  - Built and throughly tested the core file operations, including upload, read, append, and delete, ensuring the system's usability.
+Yiren Zhao designed and implemented the chunkserver logic, including data storage and replication mechanisms, ensuring efficient and reliable data handling across the system. Yiren also engineered the fault detection and failure recovery mechanisms for chunkservers, enabling the system to handle failures gracefully. Moreover, Yiren developed the leader selection algorithm for the master node, ensuring seamless coordination and leadership among distributed components. To ensure system usability, Yiren built and tested the core file operations, including upload, read, append, and delete.
 
-- **Haowei Li**:
-  - Architected the master node logic, encompassing metadata management and load balancing to maintain system performance and consistency.
-  - Designed and implemented metadata update propagation feature and master failure recovery mechanisms
-  - Programmed the logic to split files into chunks for file operations, adhering to the core principles of chunk-based distributed storage.
-  - Developed the user authentication feature.
+Haowei Li architected the master node logic, focusing on metadata management and load balancing to maintain system performance and consistency. Haowei designed and implemented the metadata update propagation feature and developed master failure recovery mechanisms to improve system resilience. Furthermore, Haowei programmed the logic for splitting files into chunks, adhering to the principles of chunk-based distributed storage, which is foundational to the system's design. To enhance system security, Haowei developed the user authentication feature, ensuring secure and authorized access for users.
 
 ## 7. Lessons Learned and Concluding Remarks
 
@@ -304,6 +297,3 @@ In conclusion, RustFS ensures efficient handling of concurrent operations, robus
 [1] "Google File System," GitHub repository, Available: https://github.com/chaitanya100100/Google-File-System/tree/master/src. [Accessed: Dec. 15, 2024].
 
 [2] "rdfs: A Rust-based distributed file system," GitHub repository, Available: https://github.com/watthedoodle/rdfs. [Accessed: Dec. 15, 2024].
-
-## **License**
-This project is licensed under the MIT License. See the LICENSE file for more details.

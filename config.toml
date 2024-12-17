@@ -1,7 +1,7 @@
 # config.toml
 [master]
 log_path = "logs"                  # log storage
-cron_interval = 10                  # Interval for load balancing periodic task (in seconds)
+cron_interval = 5                  # Interval for load balancing periodic task (in seconds)
 heartbeat_failure_threshold = 2    # Maximum multiple of heartbeat_interval, after which the server is considered unavailable
 authentication_file_path = "auth_data.json"
 
@@ -18,12 +18,13 @@ master_addrs = [
     "127.0.0.1:50002",
     "127.0.0.1:50003",
 ]
-heartbeat_interval = 20 # Heartbeat interval from ChunkServer (in seconds)
-shadow_master_ping_interval = 10 # Ping interval for shadow masters (in seconds)
+heartbeat_interval = 5 # Heartbeat interval from ChunkServer (in seconds)
+shadow_master_ping_interval = 5 # Ping interval for shadow masters (in seconds)
 chunk_size = 4096 # Chunk size (in bytes)
 max_allowed_chunks = 100 # Maximum number of chunks each chunkserver can store
 replication_factor = 2 # Number of chunk replicas
 log_level = "info" # Options are "trace", "debug", "info", "warn", "error"
 log_output = "stdout" # Options are "stdout", "file"
 otp_valid_duration = 60 # OTP valid duration
-use_authentication = true
+use_authentication = false
+

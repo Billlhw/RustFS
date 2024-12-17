@@ -303,7 +303,7 @@ impl Client {
                 .await?;
 
             // Append the chunk content to the file content
-            file_content.push_str(&response.into_inner().content);
+            file_content.push_str(&response.into_inner().content.trim_end());
         }
 
         println!("{}", file_content);

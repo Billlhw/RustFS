@@ -110,27 +110,35 @@ cd RustFS
 Ensure the `config.toml` file is properly set up. This file contains key settings for master nodes, chunkservers, and clients.
 
 Here’s a sample `config.toml`
-```
+```toml
 [master]
-log_path = "logs"
-cron_interval = 5
-heartbeat_failure_threshold = 2
+log_path = "logs"                  # log storage
+cron_interval = 5                  # Interval for load balancing periodic task (in seconds)
+heartbeat_failure_threshold = 2    # Maximum multiple of heartbeat_interval, after which the server is considered unavailable
+authentication_file_path = "auth_data.json"
 
 [chunkserver]
-data_path = "data"
-log_path = "logs"
+data_path = "data" # Path to chunk data storage
+log_path = "logs"  # Path to log storage
 
 [client]
-log_path = "client/logs"
+log_path = "client/logs" # Path to client log storage
 
 [common]
-master_addrs = ["127.0.0.1:50001", "127.0.0.1:50002", "127.0.0.1:50003"]
-heartbeat_interval = 10
-chunk_size = 4096
-max_allowed_chunks = 100
-replication_factor = 2
-log_level = "info"
-log_output = "stdout"
+master_addrs = [
+    "127.0.0.1:50001",
+    "127.0.0.1:50002",
+    "127.0.0.1:50003",
+]
+heartbeat_interval = 5 # Heartbeat interval from ChunkServer (in seconds)
+shadow_master_ping_interval = 5 # Ping interval for shadow masters (in seconds)
+chunk_size = 4096 # Chunk size (in bytes)
+max_allowed_chunks = 100 # Maximum number of chunks each chunkserver can store
+replication_factor = 2 # Number of chunk replicas
+log_level = "info" # Options are "trace", "debug", "info", "warn", "error"
+log_output = "stdout" # Options are "stdout", "file"
+otp_valid_duration = 60 # OTP valid duration
+use_authentication = false
 ```
 Make sure the `master_addrs` lists all master nodes and that `data_path` is a writable directory for chunkservers.
 

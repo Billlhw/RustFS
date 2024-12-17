@@ -200,7 +200,7 @@ Verify chunkserver logs to ensure they successfully register with the master nod
 
 Once the master nodes and chunkservers are running, use the client to perform file operations. Basic operations including uploading, reading, appending, and deleting files. The following examples demonstrate these operations using ```example.txt``` as the ```<file_name>```:
 
-### Command 1: Upload a File
+#### Command 1: Upload a File
 
 Upload a file to the distributed file system:
 
@@ -215,7 +215,7 @@ File successfully uploaded.
 ```
 
 
-### Command 2: Read a File
+#### Command 2: Read a File
 Read the contents of a file stored in the system:
 ```
 target/release/client read <file_name>
@@ -227,7 +227,7 @@ File contents:
 [contents of <file_name>]
 ```
 
-### Command 3: Append to a File
+#### Command 3: Append to a File
 Append data to the end of an existing file:
 
 ```
@@ -239,7 +239,7 @@ Appending data to <file_name>...
 Append successful.
 ```
 
-### Command 4: Delete a File
+#### Command 4: Delete a File
 Delete a file from the system:
 ```
 target/release/client delete <file_name>
@@ -248,6 +248,18 @@ Expected output:
 ```
 Deleting <file_name>...
 File successfully deleted.
+```
+
+### Authentication Feature
+To use this feature, modify the value of `use_authentication` in the `config.toml` file:
+```
+use_authentication = false
+```
+After updating the configuration, restart both the master and chunkserver processes to apply the changes.
+Use the -u and -p flags to provide the username and password, respectively:
+```
+target/release/client upload example.txt -u user1 -p password1
+target/release/client read example.txt -u user1 -p password1
 ```
 
 ## 6. Contributions by Team Members

@@ -4,6 +4,8 @@
 - **Yiren Zhao** (1005092427): yiren.zhao@mail.utoronto.ca
 - **Haowei Li** (1004793565): haowei.li@mail.utoronto.ca
 
+## Video Demo
+https://drive.google.com/file/d/1UHPI_3khvqXPu96EOfEeS2U-vYIC1_0R/view?usp=sharing
 
 ## 1. Motivation
 Distributed file systems are the backbone of modern data-driven applications, offering scalability, reliability, and high availability. With Rust's rise as a systems programming language, its ecosystem has expanded to include high-performance and resilient storage systems.
@@ -56,8 +58,15 @@ The liveliness of chunkservers is monitored by the master node. Chunkservers sen
 
 Write operations are impacted only for the duration of the interval between the master’s periodic checks, which is configurable. Read operations, however, are not suspended during this period because the client selects a random server to read from and retries with another server if the selected one has failed.
 
-### 3.3 Command-Line Interface and Configurability
-Our system provides a standard file system interface to read, upload, append, and delete files, enabling clients to perform essential operations on files stored in GFS. Details about the command formats are provided in Section 5.
+### 3.3 User Authentication
+User authentication is crucial in a distributed file system to ensure that only authorized users can access, modify, or delete files, by verifying user identities before granting permissions. This safeguards the system against malicious activities, data breaches, and ensures accountability for file operations.
+
+In our system, the master node maintains a list of valid usernames and passwords locally, with the file path being configurable. When user authentication is enabled, the client sends the username and password to the master node for verification. Upon successful authentication, the master generates a One-Time Password (OTP) and distributes it to both the user and all chunkservers. For subsequent file read or modification requests, the client includes the OTP, which the chunkservers verify before granting access.
+
+This design enhances security by ensuring that only authenticated users with valid credentials can access or modify files, while the OTP prevents credential replay attacks by being valid for a limited duration. Additionally, distributing the OTP to chunkservers ensures that authentication verification can occur without frequent communication with the master, improving system performance and scalability.
+
+### 3.4 Command-Line Interface and Configurability
+Our system provides a standard file system interface to read, upload, append, and delete files, enabling clients to perform essential operations on files stored in GFS while ensuring user-friendliness. Details about the command formats are provided in Section 5.
 
 Additionally, the designed system is highly configurable. Clients can customize parameters such as the replication factor of each chunk, the maximum number of chunks per chunkserver, the heartbeat interval between chunkservers and the master, and the interval between shadow masters and the master. This flexibility allows clients to tailor the system to their specific needs.
 

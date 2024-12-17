@@ -261,7 +261,7 @@ File successfully deleted.
   - Architected the master node logic, encompassing metadata management and load balancing to maintain system performance and consistency.
   - Designed and implemented metadata update propagation feature and master failure recovery mechanisms
   - Programmed the logic to split files into chunks for file operations, adhering to the core principles of chunk-based distributed storage.
-  - Developed real-time file tailing feature.
+  - Developed the user authentication feature.
 
 ## 7. Lessons Learned and Concluding Remarks
 
@@ -276,10 +276,9 @@ Next, we appreciate the importance of organizing code for modularity and extensi
 
 Another critical lesson was the importance of thoroughly designing features prior to implementation. For example, designing the master coordination algorithm, including leader selection and the mechanism to keep shadow masters up to date, required careful consideration, as we aimed for a simplistic design that does not rely on external servers. A clear and well-documented plan significantly expedited the development.
 
-Looking ahead, we believe this project lays a strong foundation for further exploration of distributed file systems in Rust. The system could potentially serve as a base for more advanced research or commercial applications. Future work might include implementing mechanisms to ensure strong consistency, integrating machine learning for predictive load balancing, and extending the system to support object storage for cloud environments.
 
 ### Concluding Remarks
-This project successfully combines core file storage functionalities with advanced features like encryption, file tailing, and fault tolerance. The system is scalable, secure, and resilient to failures. Future work could include optimizing the metadata handling for large-scale deployments and adding support for cross-rack replication.
+In conclusion, RustFS ensures efficient handling of concurrent operations, robust fault tolerance, and secure user authentication, which are critical for large-scale file systems. Looking ahead, we believe this project lays a strong foundation for further exploration of distributed file systems in Rust. The system could potentially serve as a base for more advanced research or commercial applications. Future work might include implementing mechanisms to ensure strong consistency, integrating machine learning for predictive load balancing, and extending the system to support object storage for cloud environments.
 
 ## 8. References
 [1] "Google File System," GitHub repository, Available: https://github.com/chaitanya100100/Google-File-System/tree/master/src. [Accessed: Dec. 15, 2024].

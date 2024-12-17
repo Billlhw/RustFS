@@ -1,6 +1,6 @@
 Performance Metrics for Read Test
 Total Files Read: 5
-File Size: 2 KB
-Total Time Taken: 0.07 seconds
+File Size: 500 KB
+Total Time Taken: 0.04 seconds
 Average Read Time: 0.01 seconds
-Throughput: 135.11 KB/s
+Throughput: 56123.10 KB/s

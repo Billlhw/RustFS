@@ -1,6 +1,6 @@
 Performance Metrics
-Total Files Uploaded: 5
-File Size: 2 KB
-Total Time Taken: 0.14 seconds
-Average Upload Time: 0.03 seconds
-Throughput: 73.77 KB/s
+Total Files Uploaded: 20
+File Size: 500 KB
+Total Time Taken: 0.38 seconds
+Average Upload Time: 0.02 seconds
+Throughput: 26371.23 KB/s

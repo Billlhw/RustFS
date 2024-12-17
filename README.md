@@ -1,8 +1,10 @@
 # Distributed File System: RustFS
 
 ## Team Information 
-- **Yiren Zhao** (1005092427): yiren.zhao@mail.utoronto.ca
-- **Haowei Li** (1004793565): haowei.li@mail.utoronto.ca
+| **Name**        | **Student Number** | **Email**                      |
+|------------------|-------------------|--------------------------------|
+| **Yiren Zhao**  | 1005092427        | yiren.zhao@mail.utoronto.ca    |
+| **Haowei Li**   | 1004793565        | haowei.li@mail.utoronto.ca     |
 
 ## Video Demo
 https://drive.google.com/file/d/1UHPI_3khvqXPu96EOfEeS2U-vYIC1_0R/view?usp=sharing
@@ -174,11 +176,11 @@ ls target/release/master target/release/chunkserver target/release/client
 - Verify the ```master_addrs``` in ```config.toml``` is correct.
 - Check if the master node is running.
 
-**Issue: Issue: File Operations Fail**
+**Issue: File Operations Fail**
 - Ensure all chunkservers and master nodes are running.
 - Check logs for error messages.
   
-      
+
 ## 5. User’s Guide: Using RustFS Features
 After setting up and building RustFS in Section 4, you need to start the **master nodes**, **chunkservers**, and then use the **client** to interact with the system.
 
@@ -271,12 +273,21 @@ target/release/client upload example.txt -u user1 -p password1
 target/release/client read example.txt -u user1 -p password1
 ```
 
-## 6. Contributions by Team Members
+## 6. Developer’s Guide: Extending and Building RustFS
+Developers can extend RustFS by modifying the codebase or implementing new features. The project’s code is organized as follows:
+
+```src/server.rs```: Contains the server-side logic, including gRPC communication and request handling.
+```src/client.rs```: Implements client-side operations such as file upload, read, append, and delete.
+```proto/```: Defines the gRPC protocol buffers used for communication between clients, master nodes, and chunkservers.
+```config.toml```: Provides configurable settings for both the client and server, such as network addresses and authentication options.
+
+
+## 7. Contributions by Team Members
 Yiren Zhao designed and implemented the chunkserver logic, including data storage and replication mechanisms, ensuring efficient and reliable data handling across the system. Yiren also engineered the fault detection and failure recovery mechanisms for chunkservers, enabling the system to handle failures gracefully. Moreover, Yiren developed the leader selection algorithm for the master node, ensuring seamless coordination and leadership among distributed components. To ensure system usability, Yiren built and tested the core file operations, including upload, read, append, and delete.
 
 Haowei Li architected the master node logic, focusing on metadata management and load balancing to maintain system performance and consistency. Haowei designed and implemented the metadata update propagation feature and developed master failure recovery mechanisms to improve system resilience. Furthermore, Haowei programmed the logic for splitting files into chunks, adhering to the principles of chunk-based distributed storage, which is foundational to the system's design. To enhance system security, Haowei developed the user authentication feature, ensuring secure and authorized access for users.
 
-## 7. Lessons Learned and Concluding Remarks
+## 8. Lessons Learned and Concluding Remarks
 
 ### Lessons Learned
 Throughout this project, we gained invaluable insights into the complexities of distributed systems, particularly in ensuring fault tolerance and consistency across distributed environments. Working with Rust provided a deeper understanding of memory safety and concurrency, and familiarized us with the modern language's distinct design philosophy.
@@ -293,7 +304,7 @@ Another critical lesson was the importance of thoroughly designing features prio
 ### Concluding Remarks
 In conclusion, RustFS ensures efficient handling of concurrent operations, robust fault tolerance, and secure user authentication, which are critical for large-scale file systems. Looking ahead, we believe this project lays a strong foundation for further exploration of distributed file systems in Rust. The system could potentially serve as a base for more advanced research or commercial applications. Future work might include implementing mechanisms to ensure strong consistency, integrating machine learning for predictive load balancing, and extending the system to support object storage for cloud environments.
 
-## 8. References
+## 9. References
 [1] "Google File System," GitHub repository, Available: https://github.com/chaitanya100100/Google-File-System/tree/master/src. [Accessed: Dec. 15, 2024].
 
 [2] "rdfs: A Rust-based distributed file system," GitHub repository, Available: https://github.com/watthedoodle/rdfs. [Accessed: Dec. 15, 2024].
